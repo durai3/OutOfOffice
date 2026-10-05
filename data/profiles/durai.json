@@ -1,0 +1,182 @@
+{
+  "user_id": "durai",
+  "display_name": "Duraikumaran",
+  "aliases": [
+    "Durai",
+    "DK"
+  ],
+  "policy": [
+    {
+      "topic": "project_status",
+      "tier": "GREEN",
+      "description": "Give project status and progress updates.",
+      "triggers": [
+        "status",
+        "progress",
+        "update on",
+        "how far along",
+        "where are we",
+        "where do we stand",
+        "on track"
+      ]
+    },
+    {
+      "topic": "documented_facts",
+      "tier": "GREEN",
+      "description": "State facts recorded in the ingested project documents.",
+      "triggers": [
+        "project alpha",
+        "architecture",
+        "tech stack",
+        "the docs",
+        "documentation",
+        "runbook",
+        "design doc"
+      ]
+    },
+    {
+      "topic": "deadline_commitment",
+      "tier": "YELLOW",
+      "description": "Commit to delivery dates and deadlines.",
+      "triggers": [
+        "deadline",
+        "deliver by",
+        "deliver this by",
+        "deliver it by",
+        "delivery date",
+        "ship by",
+        "ship this by",
+        "commit to",
+        "timeline",
+        "when will",
+        "when can",
+        "how soon",
+        "by monday",
+        "by tuesday",
+        "by wednesday",
+        "by thursday",
+        "by friday",
+        "by tomorrow",
+        "by end of",
+        "by eod",
+        "by eow",
+        "by next week"
+      ]
+    },
+    {
+      "topic": "pricing_negotiation",
+      "tier": "RED",
+      "description": "Negotiate pricing, discounts, or commercial terms.",
+      "triggers": [
+        "price",
+        "pricing",
+        "discount",
+        "cost",
+        "quote",
+        "budget",
+        "cheaper",
+        "lower the",
+        "percent off",
+        "% off",
+        "rate card",
+        "licensing fee",
+        "commercial terms"
+      ]
+    },
+    {
+      "topic": "contract_legal",
+      "tier": "RED",
+      "description": "Contract, legal, or liability matters.",
+      "triggers": [
+        "contract",
+        "legal",
+        "liability",
+        "indemnity",
+        "indemnification",
+        "terms of service",
+        "sla",
+        "nda",
+        "master services agreement"
+      ]
+    },
+    {
+      "topic": "compensation",
+      "tier": "RED",
+      "description": "Salary, compensation, equity, or what the principal expects to be paid.",
+      "triggers": [
+        "salary",
+        "compensation",
+        "how much do you earn",
+        "how much do you make",
+        "expected pay",
+        "pay expectation",
+        "salary expectation",
+        "equity",
+        "stock options",
+        "bonus",
+        "day rate",
+        "hourly rate"
+      ]
+    },
+    {
+      "topic": "personal_sensitive",
+      "tier": "RED",
+      "description": "Health, family, religion, politics, immigration status, or other private matters.",
+      "triggers": [
+        "medical",
+        "health condition",
+        "disability",
+        "religion",
+        "religious",
+        "politics",
+        "political",
+        "married",
+        "marital",
+        "children",
+        "visa status",
+        "immigration",
+        "citizenship status",
+        "date of birth",
+        "home address"
+      ]
+    },
+    {
+      "topic": "offer_acceptance",
+      "tier": "YELLOW",
+      "description": "Accepting an offer, agreeing a start date, or committing to join.",
+      "triggers": [
+        "accept the offer",
+        "accept our offer",
+        "take the job",
+        "join us",
+        "start date",
+        "when can you start",
+        "notice period",
+        "sign the offer"
+      ]
+    }
+  ],
+  "knowledge_base": [
+    {
+      "topic": "project_status",
+      "subject": "api_integration",
+      "keywords": [
+        "api integration",
+        "api",
+        "integration"
+      ],
+      "answer": "The API integration is on track. Authentication and webhook handlers are complete, rate limiting is in code review, and integration testing is scheduled for this sprint."
+    },
+    {
+      "topic": "project_status",
+      "subject": "mobile_app",
+      "keywords": [
+        "mobile app",
+        "mobile",
+        "ios",
+        "android"
+      ],
+      "answer": "The mobile app is in closed beta with 40 internal testers. Crash-free sessions are at 99.2%, and the remaining onboarding issues are being fixed before public rollout."
+    }
+  ]
+}

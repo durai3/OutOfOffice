@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+# Local vector store (rebuild with: python -m src.knowledge.ingest)
+data/chroma_db/
+# Chromium profile (holds the bot's Google session) and diagnostics
+data/chrome_profile/
+data/screenshots/
+# Archived meeting briefs (runtime data; the Representation Policy in data/profiles/ is kept)
+data/history/
+# Frontend build artefacts (web/.gitignore covers the rest)
+web/node_modules/
+web/.next/
+# Per-tenant runtime data: every account's documents, vector index, screenshots
+# and browser profile. Never committed - this is customer data.
+data/tenants/
+# Local SQLite fallback when DATABASE_URL is unset (development only).
+data/deleg8.db
+data/deleg8.db-*

@@ -1,0 +1,19 @@
+{
+  "user_id": "durai",
+  "built_at": "2026-09-19T12:40:46.062805Z",
+  "built_by": "gemini-3.6-flash",
+  "sources": [
+    "AlagarsamyDuraikumaran_JPMC.pdf",
+    "AlagarsamyDuraikumaran_JPMC_CoverLetter.pdf",
+    "AlagarsamyDuraikumaran_NTU.pdf",
+    "AlagarsamyDuraikumaran_Resume.pdf",
+    "Apple_cover_letter.pdf",
+    "JPM_cover_letter.pdf",
+    "NTU_Transcript.pdf",
+    "durai_transcript_2026.pdf",
+    "project_alpha.md",
+    "transcript_2026.pdf"
+  ],
+  "source_fingerprint": "c890dd912a47eb64",
+  "hand_edited": false
+}

@@ -1,0 +1,44 @@
+"use client";
+
+import * as React from "react";
+import { api, errorMessage } from "@/lib/api";
+import { useApi } from "@/hooks/use-api";
+import { PageHeader } from "@/components/page-header";
+import { Spinner } from "@/components/ui/spinner";
+import { AccountCard } from "@/components/settings/account-card";
+import { ConsentCard } from "@/components/settings/consent-card";
+import { CredentialsCard } from "@/components/settings/credentials-card";
+import { ChannelCard } from "@/components/settings/channel-card";
+import { DangerCard } from "@/components/settings/danger-card";
+
+export function SettingsView() {
+  const settings = useApi(api.settings);
+
+  if (settings.loading && !settings.data) {
+    return (
+      <div className="grid min-h-[40vh] place-items-center">
+        <Spinner />
+      </div>
+    );
+  }
+  if (settings.error) {
+    return <p className="text-sm text-danger">{errorMessage(settings.error)}</p>;
+  }
+  const data = settings.data!;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Settings"
+        description="Who your delegate represents, where it reaches you, whose API keys it spends, and how it handles consent."
+      />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <AccountCard />
+        <ConsentCard settings={data} onSaved={settings.refresh} />
+        <ChannelCard settings={data} onSaved={settings.refresh} />
+        <CredentialsCard settings={data} onSaved={settings.refresh} />
+      </div>
+      <DangerCard />
+    </div>
+  );
+}

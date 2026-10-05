@@ -1,0 +1,64 @@
+"use client";
+
+import * as React from "react";
+import { Upload } from "lucide-react";
+import { api, errorMessage } from "@/lib/api";
+import { useApi } from "@/hooks/use-api";
+import { Button } from "@/components/ui/button";
+
+export function DocumentsStep({ onDone }: { onDone: () => Promise<void> | void }) {
+  const knowledge = useApi(api.knowledge);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const input = React.useRef<HTMLInputElement>(null);
+
+  async function upload(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const report = await api.upload(Array.from(files));
+      const failed = report.files.filter((f) => f.status === "failed");
+      if (failed.length) setError(failed.map((f) => `${f.source}: ${f.detail}`).join("; "));
+      await knowledge.refresh();
+      await onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+
+  const documents = knowledge.data?.documents ?? [];
+
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="text-muted-foreground">
+        A CV, a project brief, notes - anything your delegate should be able to speak from. It is compiled into a
+        dossier you can read and correct, and indexed in a vector collection that only this account can search.
+      </p>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept=".md,.txt,.pdf"
+        className="hidden"
+        onChange={(e) => void upload(e.target.files)}
+      />
+      <Button onClick={() => input.current?.click()} loading={busy}>
+        <Upload className="size-4" /> Choose files
+      </Button>
+      {documents.length ? (
+        <ul className="space-y-1 text-xs text-muted-foreground">
+          {documents.map((doc) => (
+            <li key={doc.source}>
+              {doc.source} — {doc.chunks} chunk{doc.chunks === 1 ? "" : "s"}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
+    </div>
+  );
+}
