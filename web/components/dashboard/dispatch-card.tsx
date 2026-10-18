@@ -98,122 +98,141 @@ export function DispatchCard({ status, onChanged }: { status: DelegateStatus | u
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between gap-4">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Rocket className="size-4 text-muted-foreground" /> Dispatch Delegate
-          </CardTitle>
-          <CardDescription>Send DELEG8 into a Google Meet, Zoom, or Microsoft Teams call. It joins with the camera off, listens, answers within policy, and escalates the rest to Telegram.</CardDescription>
-        </div>
-        {status ? <ActivityBadge activity={status.activity} /> : null}
-      </CardHeader>
-      <CardContent>
-        {active && status ? (
-          <ActiveSession status={status} onRecall={() => setConfirmRecall(true)} />
-        ) : (
-          <form onSubmit={launch} className="flex flex-col gap-4" noValidate>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="meet-url">Meeting URL</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="meet-url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://meet.google.com/abc-defg-hij, a Zoom, or a Teams link"
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-invalid={urlInvalid || undefined}
-                  className="font-mono text-[13px]"
-                />
-                <Button type="submit" loading={submitting} disabled={!platform} className="sm:w-44">
-                  {submitting ? "Dispatching" : "Launch Delegate"}
-                </Button>
-              </div>
-              {urlInvalid ? (
-                <Hint className="text-danger">That does not look like a Google Meet, Zoom, or Microsoft Teams link.</Hint>
-              ) : platform ? (
-                <Hint>
-                  {PLATFORM_LABELS[platform]}
-                  {code ? (
-                    <>
-                      , code <span className="font-mono">{code}</span>. Memory id defaults to{" "}
-                      <span className="font-mono">{meetingIdPrefix(platform)}-{code}</span>
-                    </>
-                  ) : null}
-                  .
-                </Hint>
-              ) : (
-                <Hint>Paste the invitation link. The host must admit the bot from the lobby unless it signs in with an invited account.</Hint>
-              )}
+    <>
+      <Card className="relative overflow-hidden rounded-2xl border-white/10 bg-transparent p-0 shadow-[0_24px_50px_-24px_rgba(0,0,0,0.6)]">
+        <div className="dark relative isolate overflow-hidden rounded-[inherit] bg-[radial-gradient(90%_70%_at_100%_0%,#26262b_0%,transparent_60%),linear-gradient(180deg,#151517_0%,#0e0e10_100%)]">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] [background-size:28px_28px] [mask-image:linear-gradient(120deg,transparent_30%,#000_100%)]"
+          />
+          <CardHeader className="relative flex-row items-start justify-between gap-4 border-b border-white/10 pb-4">
+            <div>
+              <div className="flex items-center gap-2 font-mono text-[10.5px] font-medium tracking-[0.14em] text-[#d8d8de]">DISPATCH</div>
+              <CardTitle className="mt-2 flex items-center gap-2 text-base text-white">
+                <Rocket className="size-4 text-white/60" /> Dispatch Delegate
+              </CardTitle>
+              <CardDescription className="mt-1 max-w-md text-white/55">
+                Send DELEG8 into a Google Meet, Zoom, or Microsoft Teams call. It joins with the camera off, listens,
+                answers within policy, and escalates the rest to Telegram.
+              </CardDescription>
             </div>
-
-            <button type="button" onClick={() => setAdvanced((v) => !v)} className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground" aria-expanded={advanced}>
-              <ChevronDown className={cn("size-3.5 transition-transform", advanced && "rotate-180")} /> Session options
-            </button>
-
-            {advanced ? (
-              <div className="grid gap-4 rounded-md border border-border bg-muted/40 p-4 sm:grid-cols-2">
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] text-white/45">
+                <span className={cn("size-1.5 rounded-full", active ? "bg-success" : "bg-white/40")} />
+                {active ? "ACTIVE" : "ARMED"}
+              </span>
+              {status ? <ActivityBadge activity={status.activity} /> : null}
+            </div>
+          </CardHeader>
+          <CardContent className="relative pt-5">
+            {active && status ? (
+              <ActiveSession status={status} onRecall={() => setConfirmRecall(true)} />
+            ) : (
+              <form onSubmit={launch} className="flex flex-col gap-4" noValidate>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="meeting-id">Meeting id</Label>
-                  <Input
-                    id="meeting-id"
-                    value={meetingId}
-                    onChange={(e) => setMeetingId(e.target.value)}
-                    placeholder={platform && code ? `${meetingIdPrefix(platform)}-${code}` : "meet-<code>"}
-                    className="font-mono text-[13px]"
-                  />
-                  <Hint>Used for memory and the briefing filename.</Hint>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="speaker">Label for the room</Label>
-                  <Input id="speaker" value={speaker} onChange={(e) => setSpeaker(e.target.value)} placeholder="Meeting" />
-                  <Hint>No diarization yet: everyone heard is tagged with this name.</Hint>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="max-minutes">Leave automatically after (minutes)</Label>
-                  <Input id="max-minutes" inputMode="decimal" value={maxMinutes} onChange={(e) => setMaxMinutes(e.target.value)} placeholder="no limit" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="consent-mode">Recording consent</Label>
-                  <Select
-                    id="consent-mode"
-                    value={consentMode}
-                    onChange={(e) => setConsentMode(e.target.value as ConsentMode | "")}
-                  >
-                    <option value="">Use my default (Settings)</option>
-                    <option value="notify_only">Announce only</option>
-                    <option value="all_party">Wait for everyone to agree</option>
-                    <option value="single_party">Single-party consent</option>
-                  </Select>
-                  <Hint>
-                    In all-party mode nothing is kept - no transcript, memory, summary or action items - until
-                    someone in the room says yes.
-                  </Hint>
-                </div>
-                <div className="flex flex-col gap-3 pt-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="half-duplex" className="font-normal">Half-duplex (mute mic while speaking)</Label>
-                    <Switch id="half-duplex" checked={halfDuplex} onCheckedChange={setHalfDuplex} />
+                  <Label htmlFor="meet-url" className="text-white/60">Meeting URL</Label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      id="meet-url"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://meet.google.com/abc-defg-hij, a Zoom, or a Teams link"
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-invalid={urlInvalid || undefined}
+                      className="border-white/10 bg-white/5 font-mono text-[13px] text-white placeholder:text-white/35"
+                    />
+                    <Button type="submit" loading={submitting} disabled={!platform} className="sm:w-44">
+                      {submitting ? "Dispatching" : "Launch Delegate"}
+                    </Button>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="briefing" className="font-normal">Send executive briefing on exit</Label>
-                    <Switch id="briefing" checked={briefing} onCheckedChange={setBriefing} />
-                  </div>
+                  {urlInvalid ? (
+                    <Hint className="text-danger">That does not look like a Google Meet, Zoom, or Microsoft Teams link.</Hint>
+                  ) : platform ? (
+                    <Hint className="text-white/45">
+                      {PLATFORM_LABELS[platform]}
+                      {code ? (
+                        <>
+                          , code <span className="font-mono">{code}</span>. Memory id defaults to{" "}
+                          <span className="font-mono">{meetingIdPrefix(platform)}-{code}</span>
+                        </>
+                      ) : null}
+                      .
+                    </Hint>
+                  ) : (
+                    <Hint className="text-white/45">Paste the invitation link. The host must admit the bot from the lobby unless it signs in with an invited account.</Hint>
+                  )}
                 </div>
-              </div>
-            ) : null}
 
-            {error ? <p className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</p> : null}
+                <button type="button" onClick={() => setAdvanced((v) => !v)} className="flex w-fit items-center gap-1 text-xs text-white/50 hover:text-white" aria-expanded={advanced}>
+                  <ChevronDown className={cn("size-3.5 transition-transform", advanced && "rotate-180")} /> Session options
+                </button>
 
-            {status?.finished_at && (status.error || status.stop_reason) ? (
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">Last session</span> · {status.meeting_code} · {status.error ? <span className="text-danger">{status.error}</span> : status.stop_reason}
-              </div>
-            ) : null}
-          </form>
-        )}
-      </CardContent>
+                {advanced ? (
+                  <div className="grid gap-4 rounded-md border border-white/10 bg-white/[0.04] p-4 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="meeting-id" className="text-white/60">Meeting id</Label>
+                      <Input
+                        id="meeting-id"
+                        value={meetingId}
+                        onChange={(e) => setMeetingId(e.target.value)}
+                        placeholder={platform && code ? `${meetingIdPrefix(platform)}-${code}` : "meet-<code>"}
+                        className="border-white/10 bg-white/5 font-mono text-[13px] text-white placeholder:text-white/35"
+                      />
+                      <Hint className="text-white/40">Used for memory and the briefing filename.</Hint>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="speaker" className="text-white/60">Label for the room</Label>
+                      <Input id="speaker" value={speaker} onChange={(e) => setSpeaker(e.target.value)} placeholder="Meeting" className="border-white/10 bg-white/5 text-white placeholder:text-white/35" />
+                      <Hint className="text-white/40">No diarization yet: everyone heard is tagged with this name.</Hint>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="max-minutes" className="text-white/60">Leave automatically after (minutes)</Label>
+                      <Input id="max-minutes" inputMode="decimal" value={maxMinutes} onChange={(e) => setMaxMinutes(e.target.value)} placeholder="no limit" className="border-white/10 bg-white/5 text-white placeholder:text-white/35" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="consent-mode" className="text-white/60">Recording consent</Label>
+                      <Select
+                        id="consent-mode"
+                        value={consentMode}
+                        onChange={(e) => setConsentMode(e.target.value as ConsentMode | "")}
+                        className="border-white/10 bg-white/5 text-white"
+                      >
+                        <option value="">Use my default (Settings)</option>
+                        <option value="notify_only">Announce only</option>
+                        <option value="all_party">Wait for everyone to agree</option>
+                        <option value="single_party">Single-party consent</option>
+                      </Select>
+                      <Hint className="text-white/40">
+                        In all-party mode nothing is kept - no transcript, memory, summary or action items - until
+                        someone in the room says yes.
+                      </Hint>
+                    </div>
+                    <div className="flex flex-col gap-3 pt-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <Label htmlFor="half-duplex" className="font-normal text-white/70">Half-duplex (mute mic while speaking)</Label>
+                        <Switch id="half-duplex" checked={halfDuplex} onCheckedChange={setHalfDuplex} />
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <Label htmlFor="briefing" className="font-normal text-white/70">Send executive briefing on exit</Label>
+                        <Switch id="briefing" checked={briefing} onCheckedChange={setBriefing} />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {error ? <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p> : null}
+
+                {status?.finished_at && (status.error || status.stop_reason) ? (
+                  <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">
+                    <span className="font-medium text-white">Last session</span> · {status.meeting_code} · {status.error ? <span className="text-danger">{status.error}</span> : status.stop_reason}
+                  </div>
+                ) : null}
+              </form>
+            )}
+          </CardContent>
+        </div>
+      </Card>
 
       <Dialog
         open={confirmRecall}
@@ -231,7 +250,7 @@ export function DispatchCard({ status, onChanged }: { status: DelegateStatus | u
       >
         <p className="text-sm text-muted-foreground">Meeting <span className="font-mono text-foreground">{status?.meeting_code}</span> will end for the delegate. Participants stay in the call.</p>
       </Dialog>
-    </Card>
+    </>
   );
 }
 
@@ -243,13 +262,13 @@ function ActiveSession({ status, onRecall }: { status: DelegateStatus; onRecall:
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <PhaseBadge phase={status.phase} active />
-        <span className="font-mono text-sm">{status.meeting_code}</span>
+        <span className="font-mono text-sm text-white">{status.meeting_code}</span>
         {status.join_url ? (
-          <a href={status.join_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <a href={status.join_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white">
             open in {status.platform ? PLATFORM_LABELS[status.platform] : "the call"} <ExternalLink className="size-3" />
           </a>
         ) : null}
-        <span className="ml-auto tabular text-xs text-muted-foreground">{status.joined_at ? "in call" : "elapsed"} {elapsed}</span>
+        <span className="ml-auto tabular text-xs text-white/45">{status.joined_at ? "in call" : "elapsed"} {elapsed}</span>
       </div>
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <Fact label="Heard" value={status.counters.utterances} />
@@ -257,7 +276,7 @@ function ActiveSession({ status, onRecall }: { status: DelegateStatus; onRecall:
         <Fact label="Escalated" value={status.counters.escalations} />
         <Fact label="Topic" value={status.active_topic ?? "—"} mono={false} />
       </dl>
-      {status.detail ? <p className="truncate text-xs text-muted-foreground" title={status.detail}>{status.detail}</p> : null}
+      {status.detail ? <p className="truncate text-xs text-white/45" title={status.detail}>{status.detail}</p> : null}
       <div className="flex flex-wrap gap-2">
         <Link href="/live" className={buttonVariants()}>
           <Radio className="size-4" /> Open Live Monitor
@@ -272,9 +291,9 @@ function ActiveSession({ status, onRecall }: { status: DelegateStatus; onRecall:
 
 function Fact({ label, value, mono = true }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</dt>
-      <dd className={cn("truncate text-sm font-medium", mono && "tabular")}>{value}</dd>
+    <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
+      <dt className="text-[10px] uppercase tracking-wider text-white/40">{label}</dt>
+      <dd className={cn("truncate text-sm font-medium text-white", mono && "tabular")}>{value}</dd>
     </div>
   );
 }

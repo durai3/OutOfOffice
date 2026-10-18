@@ -24,7 +24,7 @@ what it may say rather than gating whether it may speak at all. Alongside that:
   depend on a retrieval hit. Reviewable and editable on the **About Me** page -
   it is exactly what the delegate will say about you.
 - **An output guard** that verifies every factual claim against its source before
-  it is spoken, and re-checks restricted subjects on the *answer* as well as the
+  it is spoken, and re-checks restricted subjects on the _answer_ as well as the
   question.
 - **A commitment ledger** that assembles an action item across several utterances,
   acknowledges it out loud, and delivers it to Telegram.
@@ -276,7 +276,7 @@ In short:
 1. Message `@BotFather`, send `/newbot`, and copy the token into `TELEGRAM_BOT_TOKEN`.
 2. Set `ESCALATION_TIMEOUT_SECONDS` (default 30).
 
-That is the *deployment's* bot, shared by every account. Telegram allows one
+That is the _deployment's_ bot, shared by every account. Telegram allows one
 poller per token, so the server runs a single hub and routes each update to a
 tenant by chat id; users connect theirs from Settings by sending
 `/link <code>` to the bot, and nothing is sent to a chat that has not been
@@ -347,6 +347,7 @@ Print the guide any time with `python tests/test_meet_ingress.py --setup-help`. 
 
    `sounddevice` and PyAudio share PortAudio's device numbering, and the script
    cross-checks them, so the indexes it writes are the ones the voice loop uses.
+
 4. Keep `BOT_HEADLESS=false`. Headless Chromium has no audio devices; "headless"
    here means nobody sits at the browser, not that there is no window.
 
@@ -408,23 +409,23 @@ the API allows the console's origin through `DELEG8_CORS_ORIGINS`.
 
 Pages:
 
-| Route         | What it does                                                                                              |
-| ------------- | --------------------------------------------------------------------------------------------------------- |
-| `/signup`     | Name, email, password, the terms, and which starter policy your delegate begins with                       |
-| `/onboarding` | The four first-run steps. You cannot dispatch until the required ones are done                             |
-| `/`           | Status cards, quota warnings, every meeting you have running, and **Dispatch Delegate**                    |
-| `/live`       | WebSocket feed for *your* account: transcript with verdicts, activity, live action items, consent banner, **Emergency Recall** |
-| `/policy`     | Green / Yellow / Red rule builder with plain-English quick-add and grounded facts                           |
-| `/dossier`    | What your delegate will say about you, editable. A hand edit is never overwritten by a rebuild              |
-| `/knowledge`  | Upload .md / .txt / .pdf into *your own* collection, inspect chunks, test the similarity gate                |
-| `/history`    | Your archived briefs: summary, decisions, action items, unresolved questions, transcript                    |
-| `/usage`      | This month against your allowance, per meeting and per call                                                 |
-| `/settings`   | Consent mode, your own API keys, your notification channel, and account deletion                            |
-| `/legal`      | The Terms and Privacy Policy as served by the API, at the version you accepted                              |
+| Route         | What it does                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `/signup`     | Name, email, password, the terms, and which starter policy your delegate begins with                                           |
+| `/onboarding` | The four first-run steps. You cannot dispatch until the required ones are done                                                 |
+| `/`           | Status cards, quota warnings, every meeting you have running, and **Dispatch Delegate**                                        |
+| `/live`       | WebSocket feed for _your_ account: transcript with verdicts, activity, live action items, consent banner, **Emergency Recall** |
+| `/policy`     | Green / Yellow / Red rule builder with plain-English quick-add and grounded facts                                              |
+| `/dossier`    | What your delegate will say about you, editable. A hand edit is never overwritten by a rebuild                                 |
+| `/knowledge`  | Upload .md / .txt / .pdf into _your own_ collection, inspect chunks, test the similarity gate                                  |
+| `/history`    | Your archived briefs: summary, decisions, action items, unresolved questions, transcript                                       |
+| `/usage`      | This month against your allowance, per meeting and per call                                                                    |
+| `/settings`   | Consent mode, your own API keys, your notification channel, and account deletion                                               |
+| `/legal`      | The Terms and Privacy Policy as served by the API, at the version you accepted                                                 |
 
 The WebSocket carries its token as a query parameter, because a browser cannot
 set headers on one. The server resolves it to a tenant and attaches the socket
-to *that account's* feed - there is no shared hub with a filtering step that
+to _that account's_ feed - there is no shared hub with a filtering step that
 could be got wrong.
 
 A dispatch launches a worker container by default (`DELEG8_DISPATCH_MODE=auto`),
@@ -440,64 +441,64 @@ load balancer can probe the first and a signup form can render the second.
 
 **Accounts and legal**
 
-| Method | Path                               | Purpose                                                         |
-| ------ | ---------------------------------- | --------------------------------------------------------------- |
-| POST   | `/api/v1/auth/signup`              | Create an account: user, principal, starter policy, legal record |
-| POST   | `/api/v1/auth/login`               | Exchange credentials for an access / refresh pair                |
-| POST   | `/api/v1/auth/refresh`             | Rotate the refresh token (a used one never works twice)          |
-| GET    | `/api/v1/auth/me`                  | The signed-in account and what onboarding still needs            |
-| POST   | `/api/v1/auth/password`            | Change the password; revokes every session                       |
-| DELETE | `/api/v1/auth/me`                  | Erase the account, its index, its files, everything              |
-| GET    | `/api/v1/legal/documents[/{key}]`  | The Terms and Privacy Policy, versioned (unauthenticated)        |
-| GET    | `/api/v1/legal/status`             | What this account has accepted, and what a version bump left due |
-| POST   | `/api/v1/legal/accept`             | Record acceptance of the current versions                        |
+| Method | Path                              | Purpose                                                          |
+| ------ | --------------------------------- | ---------------------------------------------------------------- |
+| POST   | `/api/v1/auth/signup`             | Create an account: user, principal, starter policy, legal record |
+| POST   | `/api/v1/auth/login`              | Exchange credentials for an access / refresh pair                |
+| POST   | `/api/v1/auth/refresh`            | Rotate the refresh token (a used one never works twice)          |
+| GET    | `/api/v1/auth/me`                 | The signed-in account and what onboarding still needs            |
+| POST   | `/api/v1/auth/password`           | Change the password; revokes every session                       |
+| DELETE | `/api/v1/auth/me`                 | Erase the account, its index, its files, everything              |
+| GET    | `/api/v1/legal/documents[/{key}]` | The Terms and Privacy Policy, versioned (unauthenticated)        |
+| GET    | `/api/v1/legal/status`            | What this account has accepted, and what a version bump left due |
+| POST   | `/api/v1/legal/accept`            | Record acceptance of the current versions                        |
 
 **Onboarding, settings and usage**
 
-| Method | Path                                    | Purpose                                                   |
-| ------ | --------------------------------------- | --------------------------------------------------------- |
-| GET    | `/api/v1/onboarding`                    | The four steps and what is left to do                     |
-| POST   | `/api/v1/onboarding/policy`             | Install a starter policy, or confirm the current one      |
-| POST   | `/api/v1/onboarding/telegram`           | Mint a one-time code for linking a chat                   |
-| GET    | `/api/v1/settings`                      | Consent mode, API keys, notification channel, plan        |
-| PUT    | `/api/v1/settings/credentials/{p}`      | Store your own key (verified with one real call first)    |
-| POST   | `/api/v1/settings/telegram/bot`         | Use your own Telegram bot instead of the shared one       |
-| GET    | `/api/v1/usage`                         | This month against the allowance, and what it cost        |
-| GET    | `/api/v1/usage/events`, `/meetings`     | The raw metered calls, and per-meeting totals             |
+| Method | Path                                | Purpose                                                |
+| ------ | ----------------------------------- | ------------------------------------------------------ |
+| GET    | `/api/v1/onboarding`                | The four steps and what is left to do                  |
+| POST   | `/api/v1/onboarding/policy`         | Install a starter policy, or confirm the current one   |
+| POST   | `/api/v1/onboarding/telegram`       | Mint a one-time code for linking a chat                |
+| GET    | `/api/v1/settings`                  | Consent mode, API keys, notification channel, plan     |
+| PUT    | `/api/v1/settings/credentials/{p}`  | Store your own key (verified with one real call first) |
+| POST   | `/api/v1/settings/telegram/bot`     | Use your own Telegram bot instead of the shared one    |
+| GET    | `/api/v1/usage`                     | This month against the allowance, and what it cost     |
+| GET    | `/api/v1/usage/events`, `/meetings` | The raw metered calls, and per-meeting totals          |
 
 **Meetings, the brain and compliance**
 
-| Method | Path                                   | Purpose                                                                 |
-| ------ | -------------------------------------- | ----------------------------------------------------------------------- |
-| GET    | `/api/v1/health`                       | Deployment liveness: database, escalation hub, dispatch runtime          |
-| GET    | `/api/v1/dashboard`                    | Everything the Overview page shows, for this account                     |
-| GET    | `/api/v1/delegate`, `/delegates`       | One meeting (the common case), or every meeting you have running         |
-| POST   | `/api/v1/meetings/join`                | Dispatch a delegate (202; a container is launched in the background)     |
-| POST   | `/api/v1/meetings/abort`               | Recall: cut speech, leave, close the browser, send the brief             |
-| WS     | `/api/v1/meetings/live-feed?token=`    | Real-time events for this account only                                   |
-| GET    | `/api/v1/meetings`, `/meetings/recent` | Live memory, and every meeting you have ever dispatched                  |
-| POST   | `/api/v1/meetings/{id}/conclude`       | Generate the briefing, send it, archive it, release memory               |
-| POST   | `/api/v1/meetings/{id}/consent`        | Grant or refuse recording consent for a live meeting                     |
-| GET    | `/api/v1/consent/records`, `/modes`    | The consent audit trail, and what each mode actually does                |
-| GET/PUT| `/api/v1/profile`                      | Your Representation Policy (a write aimed at another principal is ignored)|
-| POST   | `/api/v1/evaluate`, `/process-turn`    | Route one snippet: decision only, or with escalation and memory           |
-| GET    | `/api/v1/knowledge`                    | Your index's health and document inventory                               |
-| POST   | `/api/v1/knowledge/upload`, `/query`   | Upload into your own collection; search only your own                    |
-| DELETE | `/api/v1/knowledge/documents/{source}` | Remove a document's chunks and its file                                  |
-| GET    | `/api/v1/history[/{brief_id}]`         | Your archived briefs, and one in full                                    |
-| GET/PUT| `/api/v1/dossier`                      | What your delegate knows about you; a hand edit is never overwritten      |
-| GET    | `/api/v1/commitments`                  | Open action items, live and persisted                                    |
+| Method  | Path                                   | Purpose                                                                    |
+| ------- | -------------------------------------- | -------------------------------------------------------------------------- |
+| GET     | `/api/v1/health`                       | Deployment liveness: database, escalation hub, dispatch runtime            |
+| GET     | `/api/v1/dashboard`                    | Everything the Overview page shows, for this account                       |
+| GET     | `/api/v1/delegate`, `/delegates`       | One meeting (the common case), or every meeting you have running           |
+| POST    | `/api/v1/meetings/join`                | Dispatch a delegate (202; a container is launched in the background)       |
+| POST    | `/api/v1/meetings/abort`               | Recall: cut speech, leave, close the browser, send the brief               |
+| WS      | `/api/v1/meetings/live-feed?token=`    | Real-time events for this account only                                     |
+| GET     | `/api/v1/meetings`, `/meetings/recent` | Live memory, and every meeting you have ever dispatched                    |
+| POST    | `/api/v1/meetings/{id}/conclude`       | Generate the briefing, send it, archive it, release memory                 |
+| POST    | `/api/v1/meetings/{id}/consent`        | Grant or refuse recording consent for a live meeting                       |
+| GET     | `/api/v1/consent/records`, `/modes`    | The consent audit trail, and what each mode actually does                  |
+| GET/PUT | `/api/v1/profile`                      | Your Representation Policy (a write aimed at another principal is ignored) |
+| POST    | `/api/v1/evaluate`, `/process-turn`    | Route one snippet: decision only, or with escalation and memory            |
+| GET     | `/api/v1/knowledge`                    | Your index's health and document inventory                                 |
+| POST    | `/api/v1/knowledge/upload`, `/query`   | Upload into your own collection; search only your own                      |
+| DELETE  | `/api/v1/knowledge/documents/{source}` | Remove a document's chunks and its file                                    |
+| GET     | `/api/v1/history[/{brief_id}]`         | Your archived briefs, and one in full                                      |
+| GET/PUT | `/api/v1/dossier`                      | What your delegate knows about you; a hand edit is never overwritten       |
+| GET     | `/api/v1/commitments`                  | Open action items, live and persisted                                      |
 
 **Workers and operators**
 
-| Method | Path                          | Purpose                                                          |
-| ------ | ----------------------------- | ---------------------------------------------------------------- |
-| GET    | `/api/v1/worker/bundle`       | A container fetching its tenant's policy and dossier (job token)  |
-| POST   | `/api/v1/worker/events`       | Batched pipeline events from a live meeting                       |
-| POST   | `/api/v1/worker/escalate`     | A worker asking the control plane to reach its principal          |
-| POST   | `/api/v1/worker/report`       | The finished briefing, for archiving                              |
-| GET    | `/api/v1/admin/accounts`      | Every account with its activity and spend (admin; no content)     |
-| GET    | `/api/v1/admin/meetings`      | Every meeting running right now, across tenants (admin)           |
+| Method | Path                      | Purpose                                                          |
+| ------ | ------------------------- | ---------------------------------------------------------------- |
+| GET    | `/api/v1/worker/bundle`   | A container fetching its tenant's policy and dossier (job token) |
+| POST   | `/api/v1/worker/events`   | Batched pipeline events from a live meeting                      |
+| POST   | `/api/v1/worker/escalate` | A worker asking the control plane to reach its principal         |
+| POST   | `/api/v1/worker/report`   | The finished briefing, for archiving                             |
+| GET    | `/api/v1/admin/accounts`  | Every account with its activity and spend (admin; no content)    |
+| GET    | `/api/v1/admin/meetings`  | Every meeting running right now, across tenants (admin)          |
 
 An escalation no longer blocks the meeting: the delegate speaks its holding
 line straight away, the alert goes out in the background, and whatever you tap
@@ -507,7 +508,7 @@ containerised meeting that alert travels home over the job token
 and should not.
 
 Sending `/status`, `/leave`, `/conclude`, `/consent` or `/commitments` to the
-bot acts on *your* meetings; the hub resolves which account you are from the
+bot acts on _your_ meetings; the hub resolves which account you are from the
 chat the message came from.
 
 ## Verify
@@ -585,7 +586,7 @@ Sprint 1 (server running in another terminal):
 python tests/test_brain.py -v
 ```
 
-Sprint 2, in-process. If the server is running *with* Telegram credentials,
+Sprint 2, in-process. If the server is running _with_ Telegram credentials,
 stop it first: Telegram allows one poller per bot token, and the script runs
 its own bridge. A server started without credentials does not poll and can
 stay up.
@@ -679,8 +680,8 @@ See the module docstrings in `src/brain/planner.py`, `src/turn_processor.py` and
   principal's, or pure acknowledgement noise ("mm-hm") mean silence. Everything
   else gets a reply.
 - **Two tracks for what may be said.** Conversation (greetings, who the delegate
-  is, general knowledge, "I don't know") is generated freely. Any claim *about
-  the principal* must be quoted from the dossier or the retrieved documents;
+  is, general knowledge, "I don't know") is generated freely. Any claim _about
+  the principal_ must be quoted from the dossier or the retrieved documents;
   the planner supplies verbatim quotes and `OutputGuard` verifies them
   programmatically before a word is spoken. A claim that fails verification is
   replaced with an honest deferral and logged as an open question.
@@ -723,3 +724,5 @@ See the module docstrings in `src/brain/planner.py`, `src/turn_processor.py` and
   worker thread. Barge-in flushes the playback queue synchronously and the
   playback loop stops at the next 20 ms frame, then the Cartesia context is
   cancelled.
+
+#im going win with this hopefully!!!

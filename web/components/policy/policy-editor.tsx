@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRightLeft, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { ArrowRightLeft, Ban, CheckCircle2, Hand, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import type { KnowledgeEntry, PolicyRule, PolicyTier, UserProfile } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { RuleDialog, TIER_META } from "@/components/policy/rule-dialog";
 import { emptyRule, parseRuleText } from "@/components/policy/rule-parser";
 
 const TIERS: PolicyTier[] = ["GREEN", "YELLOW", "RED"];
+const TIER_ICON: Record<PolicyTier, typeof CheckCircle2> = { GREEN: CheckCircle2, YELLOW: Hand, RED: Ban };
 
 interface EditorState {
   mode: "create" | "edit";
@@ -126,17 +127,6 @@ export function PolicyEditor() {
       <PageHeader
         title="Representation Policy"
         description="What the delegate may answer on its own, what it must clear with you first, and what it must never touch."
-        actions={
-          <>
-            {dirty ? <Badge variant="warning" dot>Unsaved changes</Badge> : null}
-            <Button variant="outline" size="sm" onClick={() => remote.data && setDraft(remote.data)} disabled={!dirty || saving}>
-              <RotateCcw className="size-3.5" /> Discard
-            </Button>
-            <Button size="sm" onClick={save} disabled={!dirty} loading={saving}>
-              <Save className="size-3.5" /> Save changes
-            </Button>
-          </>
-        }
       />
 
       {remote.error && !draft ? <div className="mb-4 rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm text-danger">{remote.error}</div> : null}
@@ -150,6 +140,53 @@ export function PolicyEditor() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {TIERS.map((t) => {
+              const Icon = TIER_ICON[t];
+              const count = draft.policy.filter((r) => r.tier === t).length;
+              return (
+                <div
+                  key={t}
+                  className={cn(
+                    "flex gap-3.5 rounded-xl border px-4 py-3.5",
+                    t === "GREEN" ? "border-success/30 bg-success/10" : t === "YELLOW" ? "border-warning/30 bg-warning/10" : "border-danger/30 bg-danger/10",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex size-10 shrink-0 items-center justify-center rounded-full text-white",
+                      t === "GREEN" ? "bg-success" : t === "YELLOW" ? "bg-warning" : "bg-danger",
+                    )}
+                  >
+                    <Icon className="size-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-semibold">{TIER_META[t].name}</span>
+                      <span className="tabular font-mono text-xs text-muted-foreground">{count}</span>
+                    </div>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{TIER_META[t].blurb}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {dirty ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-2.5">
+              <Badge className="h-6">
+                <Pencil className="size-3" /> Unsaved changes
+              </Badge>
+              <span className="flex-1 text-xs text-primary">Live delegates keep using the saved policy until you save.</span>
+              <Button variant="outline" size="sm" onClick={() => remote.data && setDraft(remote.data)} disabled={saving}>
+                <RotateCcw className="size-3.5" /> Discard
+              </Button>
+              <Button size="sm" onClick={save} loading={saving}>
+                <Save className="size-3.5" /> Save policy
+              </Button>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-1">
               <CardHeader className="pb-3">

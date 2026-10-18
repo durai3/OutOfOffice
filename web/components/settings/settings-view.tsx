@@ -27,7 +27,7 @@ export function SettingsView() {
   const data = settings.data!;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="Settings"
         description="Who your delegate represents, where it reaches you, whose API keys it spends, and how it handles consent."
@@ -38,7 +38,10 @@ export function SettingsView() {
         <ChannelCard settings={data} onSaved={settings.refresh} />
         <CredentialsCard settings={data} onSaved={settings.refresh} />
       </div>
-      <DangerCard />
+      <div className="space-y-3 border-t border-border pt-6">
+        <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Danger zone</p>
+        <DangerCard />
+      </div>
     </div>
   );
 }

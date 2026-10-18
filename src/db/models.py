@@ -74,6 +74,23 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 
+class AuthProvider(str, Enum):
+    """How an account was FIRST created - not how it currently signs in.
+
+    Immutable after the row is inserted. A password (``local``) account that
+    later links a Google identity (see :class:`OAuthIdentity` and the
+    auto-link rule in ``src.auth.service.provision_or_link_oauth_account``)
+    stays ``local`` forever: this field answers "how did we acquire this
+    account" for tracking/analytics, not "which methods can this account
+    currently sign in with" - that question is answered by whether
+    ``password_hash`` is set and/or there are rows in ``oauth_identities``.
+    """
+
+    LOCAL = "local"
+    GOOGLE = "google"
+    MICROSOFT = "microsoft"
+
+
 class User(Base, TimestampMixin):
     """One account."""
 
@@ -81,10 +98,13 @@ class User(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    """``None`` for an account that has only ever signed in via SSO."""
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=UserStatus.ACTIVE.value, nullable=False)
     role: Mapped[str] = mapped_column(String(20), default=UserRole.USER.value, nullable=False)
+    auth_provider: Mapped[str] = mapped_column(String(20), default=AuthProvider.LOCAL.value, nullable=False)
+    """First-signup method; immutable. See :class:`AuthProvider`."""
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     onboarding: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     """Which onboarding steps are done; see :mod:`src.api.onboarding`."""
@@ -127,6 +147,94 @@ class AuthSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class OAuthIdentity(Base):
+    """One provider identity (Google or Microsoft) linked to a user.
+
+    This is the lookup key for "does this Google/Microsoft account already
+    have a DELEG8 account" (:func:`src.db.repo.get_oauth_identity`), and what
+    lets one account accumulate a password plus multiple SSO identities over
+    time. ``(provider, provider_subject)`` is globally unique - a given
+    Google account can only ever point at one DELEG8 user.
+    """
+
+    __tablename__ = "oauth_identities"
+    __table_args__ = (UniqueConstraint("provider", "provider_subject", name="uq_oauth_identity_subject"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    """The provider's stable, opaque subject id (Google's ``sub``, Microsoft's ``id``) - never the email."""
+    provider_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    """The email the provider reported at link time. Tracking only - never re-trusted for lookups; ``provider_subject`` is."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+# --------------------------------------------------------------------------- #
+# Organizations - billing/seat/admin sits here, above the per-user tenancy.
+# Nothing below User changes: every org member still owns their own
+# Principal, Workspace, meetings and knowledge exactly as a solo user does.
+# --------------------------------------------------------------------------- #
+
+class OrganizationRole(str, Enum):
+    """Org-scoped role. Deliberately distinct from :class:`UserRole` (the platform-wide admin flag)."""
+
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
+class Organization(Base, TimestampMixin):
+    """A paying entity with seats. A user belongs to at most one, in this pass."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    seats_limit: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    """Where ``plan`` lives for an org, mirroring :attr:`User.settings`'s convention."""
+
+
+class OrganizationMember(Base, TimestampMixin):
+    """One user's membership in one organization."""
+
+    __tablename__ = "organization_members"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", name="uq_org_member"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), default=OrganizationRole.MEMBER.value, nullable=False)
+
+
+class OrganizationInvite(Base, TimestampMixin):
+    """An invitation to join an organization, redeemed via a link token.
+
+    ``token_hash`` is a SHA-256 digest, the same pattern :class:`AuthSession`
+    uses for refresh tokens - the raw token only ever exists in memory long
+    enough to build the shareable link; it is never stored.
+    """
+
+    __tablename__ = "organization_invites"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), default=OrganizationRole.MEMBER.value, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def is_pending(self) -> bool:
+        """True while the invite can still be redeemed."""
+        return self.accepted_at is None and self.revoked_at is None and utcnow() < self.expires_at
 
 
 # --------------------------------------------------------------------------- #
@@ -502,6 +610,124 @@ class UsageEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class ConnectorType(str, Enum):
+    """Third-party systems a user may connect a briefing or task sync to."""
+
+    SLACK = "slack"
+    MS_TEAMS = "ms_teams"
+    JIRA = "jira"
+    LINEAR = "linear"
+    ASANA = "asana"
+    GOOGLE_CALENDAR = "google_calendar"
+    EMAIL = "email"
+    NOTION = "notion"
+
+
+class Integration(Base, TimestampMixin):
+    """One user's connection to a third-party system. One row per connector type."""
+
+    __tablename__ = "integrations"
+    __table_args__ = (UniqueConstraint("user_id", "connector_type", name="uq_integration_type"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    connector_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    auth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """OAuth token, webhook URL, or API key - whichever the connector's auth mode uses. Encrypted at rest."""
+    config_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """JSON config (e.g. channel id, board id), encrypted at rest since it can embed identifiers."""
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped[User] = relationship()
+
+
+class CalendarProvider(str, Enum):
+    """Mailbox providers a user may connect for meeting auto-detection."""
+
+    GOOGLE = "google"
+    MICROSOFT = "microsoft"
+
+
+class CalendarAccount(Base, TimestampMixin):
+    """One connected calendar mailbox - independent of how the user signed in.
+
+    Deliberately not an :class:`Integration` row: a user may connect several
+    mailboxes of the same provider (a work and a personal Google account), and
+    each is discovered only once the OAuth token is exchanged and the mailbox's
+    own address is known - see :mod:`src.calendar.providers`.
+    """
+
+    __tablename__ = "calendar_accounts"
+    __table_args__ = (UniqueConstraint("user_id", "provider", "email", name="uq_calendar_account"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    auth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    config_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """``refresh_token`` / ``expires_at`` - same shape as :class:`Integration`'s config, encrypted at rest."""
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped[User] = relationship()
+
+
+class CalendarEvent(Base, TimestampMixin):
+    """One synced upcoming meeting from a connected calendar account."""
+
+    __tablename__ = "calendar_events"
+    __table_args__ = (
+        UniqueConstraint("calendar_account_id", "provider_event_id", name="uq_calendar_event"),
+        Index("ix_calendar_events_user_start", "user_id", "start_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    calendar_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("calendar_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider_event_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    join_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    """The video-call link extracted from the event, if it has one. Empty when the event cannot be delegated."""
+    html_link: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleg8_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    """The user asked in advance - console or Telegram - for the delegate to join this one automatically."""
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When the T-15-minutes Telegram reminder went out, so it is only ever sent once."""
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meeting_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("meetings.id", ondelete="SET NULL"), nullable=True)
+
+    account: Mapped[CalendarAccount] = relationship()
+
+
+class MeetingMetrics(Base):
+    """Cached health scores for one meeting, computed from its archived report."""
+
+    __tablename__ = "meeting_metrics"
+    __table_args__ = (UniqueConstraint("meeting_id", name="uq_meeting_metrics"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    meeting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision_clarity: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    participation_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    agenda_adherence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    action_item_clarity: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    health_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    flags: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class LegalAcceptance(Base):
     """Proof that a user accepted a specific version of a legal document."""
 
@@ -541,21 +767,33 @@ class ConsentRecord(Base):
 
 
 __all__ = [
+    "AuthProvider",
     "AuthSession",
+    "CalendarAccount",
+    "CalendarEvent",
+    "CalendarProvider",
     "CommitmentRow",
+    "ConnectorType",
     "ConsentMode",
     "ConsentRecord",
     "ConsentState",
     "CredentialProvider",
     "Document",
     "Dossier",
+    "Integration",
     "KnowledgeEntry",
     "LegalAcceptance",
     "Meeting",
+    "MeetingMetrics",
     "MeetingReport",
     "MeetingRuntime",
     "MeetingStatus",
     "NotificationChannel",
+    "OAuthIdentity",
+    "Organization",
+    "OrganizationInvite",
+    "OrganizationMember",
+    "OrganizationRole",
     "PolicyRule",
     "Principal",
     "UsageEvent",

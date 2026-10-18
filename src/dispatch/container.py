@@ -186,7 +186,12 @@ class ContainerDispatcher:
             "DELEG8_ANTHROPIC_FAST_MODEL", "DELEG8_ANTHROPIC_SMART_MODEL",
             "DELEG8_GEMINI_FAST_MODEL", "DELEG8_GEMINI_SMART_MODEL",
             "DEEPGRAM_MODEL", "CARTESIA_MODEL_ID", "CARTESIA_VOICE_ID",
-            "ESCALATION_TIMEOUT_SECONDS", "BOT_DISPLAY_NAME", "BOT_EMAIL", "BOT_PASSWORD",
+            "ESCALATION_TIMEOUT_SECONDS", "BOT_DISPLAY_NAME",
+            # The names the bots actually read. BOT_EMAIL / BOT_PASSWORD were
+            # passed here for weeks and matched nothing, so every containerised
+            # worker joined as an anonymous guest and Google Meet auto-blocked
+            # it ~1s after it asked to join.
+            "BOT_GOOGLE_EMAIL", "BOT_GOOGLE_PASSWORD",
             "DELEG8_MEMORY_WINDOW",
         )
         return {name: os.environ[name] for name in names if os.environ.get(name, "").strip()}

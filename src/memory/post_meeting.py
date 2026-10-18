@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
@@ -49,6 +50,8 @@ from src.brain.profile_store import ProfileNotFoundError, ProfileStore
 from src.escalation.bridge import MessageDispatcher
 from src.escalation.models import DeliveryReceipt
 from src.health import COMPONENT_BRIEFING, report_degraded, report_healthy
+from src.integrations.base import BriefingContent
+from src.integrations.dispatcher import dispatch_briefing
 from src.llm import LlmClient, LlmError, ModelRole, build_llm
 from src.memory.commitments import (
     Commitment,
@@ -462,12 +465,16 @@ class PostMeetingReporter:
         archive: ReportArchive | None = None,
         llm: LlmClient | None = None,
         commitments: CommitmentRegistry | None = None,
+        user_id: uuid.UUID | None = None,
     ) -> None:
         """``summariser`` defaults to :func:`build_summariser`; ``fallback`` to the template.
 
         ``archive`` receives every report so the meeting history survives the process.
         ``commitments`` supplies the action items, which are taken from the ledger
-        rather than re-derived from the transcript by a model.
+        rather than re-derived from the transcript by a model. ``user_id`` is the
+        account id used to look up enabled integrations to fan the briefing out to;
+        left ``None`` (the command-line and worker paths), no integration is ever
+        dispatched.
         """
         self._dispatcher = dispatcher
         self._archive = archive
@@ -475,6 +482,7 @@ class PostMeetingReporter:
         self._fallback: Summariser = fallback if fallback is not None else TemplateSummariser()
         self._store = store
         self._commitments = commitments
+        self._user_id = user_id
 
     @property
     def summariser(self) -> Summariser:
@@ -595,7 +603,26 @@ class PostMeetingReporter:
                 self._archive.save(report)
             except Exception:  # noqa: BLE001 - archiving must never lose the briefing itself
                 logger.exception("could not archive the briefing for %s", state.meeting_id)
+        if self._user_id is not None:
+            try:
+                await dispatch_briefing(self._user_id, self._integration_content(state.meeting_id, briefing))
+            except Exception:  # noqa: BLE001 - a connector failing must never fail the conclude itself
+                logger.exception("integration dispatch failed for meeting %s", state.meeting_id)
         return report
+
+    @staticmethod
+    def _integration_content(meeting_id: str, briefing: ExecutiveBriefing) -> BriefingContent:
+        """Project the briefing onto the connector framework's flat shape."""
+        return BriefingContent(
+            meeting_key=meeting_id,
+            summary=briefing.executive_summary,
+            decisions=list(briefing.decisions_made),
+            action_items=[
+                {"description": item.description, "owner": item.owner, "due": item.due}
+                for item in briefing.action_items
+            ],
+            risks=list(briefing.unresolved_questions),
+        )
 
     async def _send_commitments(self, snapshot: MeetingSnapshot) -> None:
         """Send the action items as their own message, ahead of any truncation.

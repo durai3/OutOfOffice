@@ -64,8 +64,42 @@ export interface TimelineEntry {
   detail: string | null;
 }
 
+/**
+ * Whether the delegate can actually hear the room.
+ *
+ * A dead virtual cable looks exactly like an empty meeting from here - no
+ * transcript either way - so the backend measures the input signal and says
+ * which it is. Without this, "Nothing heard yet" was the only symptom of a
+ * delegate that was never going to hear a word.
+ */
+export interface AudioHealth {
+  inputDevice: string | null;
+  outputDevice: string | null;
+  peak: number | null;
+  heardAnything: boolean;
+  deaf: boolean;
+  /** Device the meeting app must select itself, when the OS refused it as default. */
+  inAppMic: string | null;
+  muted: boolean;
+  problem: string | null;
+  notes: string[];
+}
+
+export const initialAudioHealth: AudioHealth = {
+  inputDevice: null,
+  outputDevice: null,
+  peak: null,
+  heardAnything: false,
+  deaf: false,
+  inAppMic: null,
+  muted: false,
+  problem: null,
+  notes: [],
+};
+
 export interface LiveState {
   connection: ConnectionState;
+  audio: AudioHealth;
   status: DelegateStatus | null;
   meetingId: string | null;
   participants: string[];
@@ -93,6 +127,7 @@ const MAX_TIMELINE = 200;
 
 export const initialLiveState: LiveState = {
   connection: "connecting",
+  audio: initialAudioHealth,
   status: null,
   meetingId: null,
   participants: [],
@@ -185,11 +220,57 @@ function applyEvent(state: LiveState, event: LiveEvent): LiveState {
     case "transcript.interim":
       return { ...base, interim: str(p.text) ?? "", interimSpeaker: str(p.speaker) };
 
+    case "audio.route": {
+      const notes = Array.isArray(p.notes) ? p.notes.filter((n): n is string => typeof n === "string") : [];
+      const deaf = Boolean(p.deaf);
+      return {
+        ...base,
+        audio: {
+          ...state.audio,
+          inputDevice: str(p.input_name),
+          outputDevice: str(p.output_name),
+          deaf,
+          inAppMic: str(p.in_app_mic),
+          notes,
+          problem: deaf
+            ? `The delegate's input device (${str(p.input_name) ?? "unknown"}) carries no audio, so it cannot hear the meeting.`
+            : state.audio.problem,
+        },
+        timeline: timeline(state, event, "voice", "Audio route checked", str(p.input_name) ? `hears via ${p.input_name}` : null),
+      };
+    }
+
+    case "audio.level":
+      return {
+        ...base,
+        audio: {
+          ...state.audio,
+          peak: num(p.peak),
+          muted: Boolean(p.muted),
+          heardAnything: Boolean(p.heard_anything),
+          inputDevice: str(p.device) ?? state.audio.inputDevice,
+        },
+      };
+
+    case "audio.input_alive":
+      return { ...base, audio: { ...state.audio, heardAnything: true, deaf: false, problem: null } };
+
+    case "audio.input_silent":
+      return {
+        ...base,
+        audio: { ...state.audio, heardAnything: false, deaf: true, problem: str(p.detail) },
+        timeline: timeline(state, event, "voice", "Input device is silent", str(p.device)),
+      };
+
+    case "audio.route_check_failed":
+      return { ...base, audio: { ...state.audio, problem: `Audio route could not be checked: ${str(p.error) ?? "unknown error"}` } };
+
     case "session.started":
       return {
         ...base,
         meetingId: str(p.meeting_id),
         participants: [str(p.principal), str(p.speaker_label)].filter((x): x is string => Boolean(x)),
+        audio: initialAudioHealth,
         turns: [],
         interim: "",
         interimSpeaker: null,

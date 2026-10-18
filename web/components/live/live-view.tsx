@@ -15,10 +15,11 @@ import {
   HelpCircle,
   ListChecks,
   MessageSquareWarning,
+  Mic,
+  MicOff,
   OctagonX,
   Plug,
   PlugZap,
-  Rocket,
   Send,
   ShieldAlert,
   Volume2,
@@ -36,6 +37,87 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { ACTIVITY_LABEL, DecisionBadge, PhaseBadge, TierBadge } from "@/components/status-badge";
 
+/**
+ * The delegate's hearing, when there is something to say about it.
+ *
+ * Silence in the transcript has two completely different causes - a quiet room
+ * and an input device that carries nothing - and they used to look identical
+ * here. The backend measures the input signal, so this says which one it is,
+ * and what to do about the broken case.
+ */
+// Peaks are 16-bit ints; this maps the real reading onto a 0-1 scale the same
+// way InputLevelMeter does (log, not linear), just stretched across more bars.
+function peakFill(peak: number): number {
+  if (!peak || peak <= 0) return 0;
+  return Math.min(1, Math.max(0, Math.log10(peak) / 4.5));
+}
+
+/**
+ * The input-level history as a short waveform, promoted to its own panel -
+ * the same real peak reading InputLevelMeter uses, just buffered over time
+ * instead of a single 5-bar snapshot. Falls back to the error panel when the
+ * backend reports a specific audio problem.
+ */
+function AudioPanel({ audio, listening, history }: { audio: LiveState["audio"]; listening: boolean; history: number[] }) {
+  if (audio.problem) {
+    return (
+      <div className="flex gap-2.5 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-xs text-danger">
+        <MicOff className="mt-0.5 size-4 shrink-0" />
+        <div className="space-y-1">
+          <p className="font-medium">The delegate cannot hear the meeting</p>
+          <p className="text-danger/90">{audio.problem}</p>
+          <p className="text-danger/80">
+            Run <code className="rounded bg-danger/15 px-1">python -m src.audio.cable_check</code> to measure every
+            virtual cable and see which one works.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (!listening || !audio.inputDevice) return null;
+
+  const last = history[history.length - 1] ?? 0;
+  const lastFill = peakFill(last);
+  const tone = lastFill > 0.88 ? "text-danger" : lastFill > 0.68 ? "text-warning" : "text-success";
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3.5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="font-mono text-[10.5px] tracking-[0.12em] text-white/45">INPUT LEVEL</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.07] px-2.5 py-1 text-[11.5px] text-white/75">
+            <Mic className="size-3.5" />
+            {audio.muted
+              ? "input muted while the delegate speaks"
+              : audio.heardAnything
+                ? `hearing the room on ${audio.inputDevice}`
+                : `listening on ${audio.inputDevice} · no sound yet`}
+          </span>
+          {audio.inAppMic ? (
+            <Badge variant="outline" className="h-5 text-[10px]" title={`The meeting app selects ${audio.inAppMic} as its microphone`}>
+              in-app mic
+            </Badge>
+          ) : null}
+        </div>
+        <span className={cn("font-mono text-[13px] font-medium", tone)}>peak {last}</span>
+      </div>
+      <div className="flex h-[52px] items-end gap-[3px]">
+        {history.map((value, index) => {
+          const fill = peakFill(value);
+          const height = Math.round(4 + fill * 48);
+          const color = fill > 0.88 ? "bg-danger" : fill > 0.68 ? "bg-warning" : "bg-success";
+          const opacity = 0.35 + 0.65 * (index / Math.max(1, history.length - 1));
+          return <div key={index} className={cn("min-w-[2px] flex-1 rounded-sm", color)} style={{ height, opacity }} />;
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between font-mono text-[10px] text-white/35">
+        <span>quiet</span>
+        <span>loud</span>
+      </div>
+    </div>
+  );
+}
+
 function useNow(intervalMs = 1000): number {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
@@ -45,10 +127,30 @@ function useNow(intervalMs = 1000): number {
   return now;
 }
 
+const PEAK_HISTORY_SIZE = 56;
+
+/**
+ * A rolling window of real peak readings, so the meter can draw a short
+ * waveform history instead of one instantaneous bar. The backend only ever
+ * reports the current peak, not a timeseries - this buffers it client-side.
+ */
+function usePeakHistory(peak: number | null, size = PEAK_HISTORY_SIZE): number[] {
+  const [history, setHistory] = React.useState<number[]>(() => Array.from({ length: size }, () => 0));
+  const seen = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (peak === seen.current) return;
+    seen.current = peak;
+    setHistory((prev) => [...prev.slice(1), peak ?? 0]);
+  }, [peak]);
+  return history;
+}
+
 export function LiveView() {
   const feed = useLiveFeed();
   const status = feed.status;
   const active = Boolean(status?.active);
+  const hasContent = active || feed.turns.length > 0;
+  const peakHistory = usePeakHistory(feed.audio.peak);
   const [confirm, setConfirm] = React.useState(false);
   const [recalling, setRecalling] = React.useState(false);
   const toast = useToast();
@@ -81,47 +183,50 @@ export function LiveView() {
         }
       />
 
-      <StatusStrip status={status} connection={feed.connection} />
-
-      <ConsentStrip status={status} />
-
-      {!active && feed.turns.length === 0 ? (
-        <Card className="mt-4">
-          <CardContent className="pt-6">
-            <EmptyState
-              icon={<Rocket />}
-              title="The delegate is idle"
-              description={
-                status?.error
-                  ? `The last session ended with an error: ${status.error}`
-                  : "Dispatch it to a Google Meet from the Overview page and this screen fills in as soon as the browser starts."
-              }
-              action={
-                <Link href="/" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                  Go to Overview
-                </Link>
-              }
-            />
-            {feed.lastReport ? <LastBriefing state={feed} /> : null}
-            {feed.timeline.length > 0 ? <Timeline entries={feed.timeline} className="mt-6" /> : null}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="mt-4 grid gap-4 xl:grid-cols-3">
-          <div className="flex flex-col gap-4 xl:col-span-2">
-            <NowPanel status={status} state={feed} />
-            <Transcript state={feed} />
-          </div>
+      <div className="dark relative mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(160deg,#17161c_0%,#0e0e10_65%)] p-4 shadow-[0_28px_60px_-28px_rgba(0,0,0,0.7)] sm:p-5">
+        {hasContent ? (
           <div className="flex flex-col gap-4">
-            <Escalations entries={feed.escalations} pending={status?.pending_escalations ?? 0} />
-            <ActionItems items={feed.actions} />
-            <Decisions items={feed.decisions} />
-            <OpenQuestions items={feed.questions} />
-            <Timeline entries={feed.timeline} />
-            {feed.lastReport ? <LastBriefing state={feed} /> : null}
+            <StatusStrip status={status} connection={feed.connection} />
+            <ConsentStrip status={status} />
+            <AudioPanel audio={feed.audio} listening={Boolean(status?.active)} history={peakHistory} />
+            <div className="grid gap-4 xl:grid-cols-3">
+              <div className="flex flex-col gap-4 xl:col-span-2">
+                <NowPanel status={status} state={feed} />
+                <Transcript state={feed} />
+              </div>
+              <div className="flex flex-col gap-4">
+                <Escalations entries={feed.escalations} pending={status?.pending_escalations ?? 0} />
+                <ActionItems items={feed.actions} />
+                <Decisions items={feed.decisions} />
+                <OpenQuestions items={feed.questions} />
+                <Timeline entries={feed.timeline} />
+                {feed.lastReport ? <LastBriefing state={feed} /> : null}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <div className="relative mb-2 size-[160px]" aria-hidden="true">
+              <div className="absolute inset-0 rounded-full border border-white/10" />
+              <div className="absolute inset-[26px] rounded-full border border-white/10" />
+              <div className="absolute inset-[52px] rounded-full border border-white/10" />
+              <div className="absolute left-1/2 top-1/2 h-px w-20 origin-left animate-[d8spin_4s_linear_infinite] bg-[linear-gradient(to_right,#d8d8de,transparent)]" />
+              <div className="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d8d8de]" />
+            </div>
+            <p className="text-lg font-medium text-white">The delegate is idle</p>
+            <p className="max-w-md text-sm text-white/50">
+              {status?.error
+                ? `The last session ended with an error: ${status.error}`
+                : "Dispatch it to a Google Meet from the Overview page and this screen fills in as soon as the browser starts."}
+            </p>
+            <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-2 border-white/15 bg-transparent text-white hover:bg-white/10")}>
+              Go to Overview
+            </Link>
+            {feed.lastReport ? <LastBriefing state={feed} /> : null}
+            {feed.timeline.length > 0 ? <Timeline entries={feed.timeline} className="mt-2 w-full text-left" /> : null}
+          </div>
+        )}
+      </div>
 
       <Dialog
         open={confirm}
@@ -271,7 +376,7 @@ function StatusStrip({ status, connection }: { status: DelegateStatus | null; co
   const counters = status?.counters;
 
   return (
-    <Card>
+    <Card className="border-white/10 bg-white/[0.035] shadow-none">
       <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
         <div className="flex items-center gap-3">
           <span className={cn("grid size-11 shrink-0 place-items-center rounded-lg", ACTIVITY_TONE[activity])}>
@@ -394,7 +499,16 @@ function Transcript({ state }: { state: LiveState }) {
       <CardContent className="flex-1 pb-4">
         <div ref={boxRef} onScroll={onScroll} className="scroll-thin max-h-[60vh] min-h-[340px] overflow-y-auto pr-1">
           {state.turns.length === 0 && !state.interim ? (
-            <EmptyState compact icon={<Ear />} title="Nothing heard yet" description="Transcript lines appear here as Deepgram finalises them." />
+            <EmptyState
+              compact
+              icon={<Ear />}
+              title="Nothing heard yet"
+              description={
+                state.audio.inputDevice
+                  ? `Listening on ${state.audio.inputDevice}. Transcript lines appear here as Deepgram finalises them.`
+                  : "Transcript lines appear here as Deepgram finalises them."
+              }
+            />
           ) : (
             <ol className="flex flex-col gap-3">
               {state.turns.map((line) => (

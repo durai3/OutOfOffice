@@ -65,7 +65,7 @@ from src.memory.commitments import CommitmentRegistry
 from src.memory.meeting_state import MeetingStateRegistry, memory_window_from_env
 from src.tenancy.credentials import ResolvedCredentials, resolve
 from src.tenancy.paths import TenantPaths
-from src.usage.meter import PLANS, Quota, UsageMeter, plan_for
+from src.usage.meter import PLANS, Quota, UsageMeter, plan_for_context
 
 logger = logging.getLogger("deleg8.tenancy.workspace")
 
@@ -185,6 +185,7 @@ class Workspace:
                 llm=llm,
                 dossiers=self.dossiers,
                 commitments=self.commitments,
+                user_id=self.user_id,
             )
 
             from src.api.delegate import DelegateManager
@@ -227,7 +228,8 @@ class Workspace:
             self.principal_name = principal.display_name
         settings = dict(user.settings or {}) if user is not None else {}
         self.credentials = resolve(session, self.user_id)
-        self.plan = PLANS["unlimited"] if self.fully_byo else plan_for(settings)
+        org_settings = repo.org_settings_for_user(session, self.user_id)
+        self.plan = PLANS["unlimited"] if self.fully_byo else plan_for_context(settings, org_settings)
         self.default_consent_mode = mode_from_value(settings.get("consent_mode"))
 
     async def _open_knowledge(self) -> tuple[KnowledgeSource, KnowledgeStore | None, DocumentKnowledge | None]:

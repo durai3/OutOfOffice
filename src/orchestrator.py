@@ -59,6 +59,17 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, to keep this module importa
 
 logger = logging.getLogger("deleg8.orchestrator")
 
+_LEVEL_INTERVAL_SECONDS: float = 2.0
+"""How often the input level is sampled and reported to the console."""
+_DEAF_AFTER_SECONDS: float = 20.0
+"""How long the input may carry no sound at all before it is called broken.
+
+Twenty seconds into a call somebody has said something. An input that has not
+seen a single sample above the noise floor by then is not a quiet room, it is a
+cable with nothing on the other end - the exact failure that produced a whole
+meeting of "Nothing heard yet" while Deepgram sat happily connected.
+"""
+
 _FILLER_AFTER_SECONDS: float = 0.45
 """How long a turn may think in silence before a holding phrase is played."""
 _FILLER_FLOOR_SECONDS: float = 0.5
@@ -148,6 +159,15 @@ class VoiceOrchestrator:
         self._fillers = FillerPicker()
         self.stats = SessionStats()
         self._stt_task: asyncio.Task[None] | None = None
+        self._level_task: asyncio.Task[None] | None = None
+        self._participant_count: int | None = -1
+        """Last headcount reported, so a change is announced once rather than
+        every turn. Starts at -1 so the first real reading (``None`` included)
+        counts as a change."""
+        self.input_alive: bool | None = None
+        """``None`` until the input has been judged, then whether it carries sound.
+        :class:`~src.gateway.session.MeetingSession` reports it so a deaf cable is
+        visible in the web console instead of looking like an empty meeting."""
         self.ready = False
         """True once audio, TTS and STT are all up and the loop is listening."""
         self.is_speaking = False
@@ -174,6 +194,7 @@ class VoiceOrchestrator:
             await self._tts.start()
             self._stt_task = asyncio.create_task(self._stt.run(), name="deleg8-stt")
             await self._wait_for_stt()
+            self._level_task = asyncio.create_task(self._watch_input_level(), name="deleg8-input-level")
             self.ready = True
             print("[READY] Listening. Speak into the microphone. Ctrl+C to stop.", flush=True)
             self._emit(
@@ -229,8 +250,65 @@ class VoiceOrchestrator:
             raise RuntimeError("STT stream ended before connecting")
         waiter.result()
 
+    async def _watch_input_level(self) -> None:
+        """Report the microphone's signal level, and say so when it carries nothing.
+
+        Deepgram cannot tell a dead cable from a quiet room - both produce no
+        transcript - so neither could anyone watching the console: a meeting
+        whose audio never arrived looked exactly like a meeting in which nobody
+        spoke. This samples the input peak instead, which separates the two
+        immediately, and names the device so the fix is obvious.
+        """
+        warned = False
+        while True:
+            await asyncio.sleep(_LEVEL_INTERVAL_SECONDS)
+            peak, quiet_for = self._audio.read_input_level()
+            self._emit(
+                "audio.level",
+                meeting_id=self._settings.meeting_id,
+                peak=peak,
+                device=self._audio.input_device_name,
+                heard_anything=self._audio.heard_anything,
+                quiet_seconds=round(quiet_for, 1) if quiet_for is not None else None,
+                muted=self._audio.muted,
+            )
+            if self._audio.heard_anything:
+                if self.input_alive is not True:
+                    self.input_alive = True
+                    print(f"[AUDIO] input {self._audio.input_device_name!r} is carrying sound (peak {peak}).", flush=True)
+                    self._emit("audio.input_alive", device=self._audio.input_device_name, peak=peak)
+                continue
+            if warned or self._audio.listening_seconds < _DEAF_AFTER_SECONDS:
+                continue
+            warned = True
+            self.input_alive = False
+            device = self._audio.input_device_name or "the configured input device"
+            detail = (
+                f"nothing but silence has reached {device!r} in "
+                f"{self._audio.listening_seconds:.0f}s, so the delegate cannot hear the meeting. "
+                "The meeting's audio is not arriving on that device: check that it is the system default "
+                "OUTPUT (what the browser plays into) and that the virtual cable actually loops back - "
+                "run `python -m src.audio.cable_check` to measure it."
+            )
+            print(f"[AUDIO] {detail}", flush=True)
+            logger.error("input device is silent: %s", detail)
+            self._emit(
+                "audio.input_silent",
+                meeting_id=self._settings.meeting_id,
+                device=self._audio.input_device_name,
+                seconds=round(self._audio.listening_seconds, 1),
+                detail=detail,
+            )
+
     async def shutdown(self) -> None:
         """Stop everything in dependency order. Idempotent."""
+        if self._level_task is not None and not self._level_task.done():
+            self._level_task.cancel()
+            try:
+                await self._level_task
+            except asyncio.CancelledError:
+                pass
+        self._level_task = None
         if self._barge_in.is_bot_speaking:
             await self._barge_in.interrupt("shutdown")
         await self._stt.stop()
@@ -265,6 +343,20 @@ class VoiceOrchestrator:
             return
 
         participant_count = self._participant_count_provider() if self._participant_count_provider is not None else None
+        if participant_count != self._participant_count:
+            self._participant_count = participant_count
+            # Three or more people turns the delegate from the room's default
+            # respondent into one voice among several, so the number it is
+            # working from belongs on the record, not just in the prompt.
+            mode = "one-on-one" if participant_count is None or participant_count < 3 else "group"
+            print(f"[MEET] {participant_count if participant_count else 'unknown'} in the call; "
+                  f"responding in {mode} mode.", flush=True)
+            self._emit(
+                "meeting.participants",
+                meeting_id=self._settings.meeting_id,
+                count=participant_count,
+                mode=mode,
+            )
         context = MeetingContext(
             meeting_id=self._settings.meeting_id,
             user_id=self._settings.user_id,
@@ -279,6 +371,7 @@ class VoiceOrchestrator:
             speaker=context.speaker,
             text=context.transcript,
             confidence=round(utterance.confidence, 3),
+            participant_count=participant_count,
             interrupted_bot=utterance.interrupted_bot,
             duration_seconds=round(utterance.duration_seconds, 2),
             timestamp=context.timestamp,

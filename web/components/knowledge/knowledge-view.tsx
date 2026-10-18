@@ -311,6 +311,7 @@ function DocumentsCard({ data, onChunks, onRemove, onChanged }: { data: Knowledg
                   <th className="pb-2 pr-3 font-medium">Source</th>
                   <th className="pb-2 pr-3 font-medium">Title</th>
                   <th className="pb-2 pr-3 text-right font-medium">Chunks</th>
+                  <th className="pb-2 pr-3 font-medium">sha256</th>
                   <th className="pb-2 pr-3 text-right font-medium">Size</th>
                   <th className="pb-2 pr-3 font-medium">Updated</th>
                   <th className="pb-2 font-medium sr-only">Actions</th>
@@ -329,6 +330,7 @@ function DocumentsCard({ data, onChunks, onRemove, onChanged }: { data: Knowledg
                     </td>
                     <td className="max-w-[16rem] truncate py-2 pr-3 text-xs" title={doc.title}>{doc.title || "—"}</td>
                     <td className="tabular py-2 pr-3 text-right text-xs">{doc.chunks}{doc.pages ? <span className="text-muted-foreground"> · {doc.pages} p</span> : null}</td>
+                    <td className="py-2 pr-3 font-mono text-[11px] text-muted-foreground">{doc.sha256 ? `${doc.sha256.slice(0, 8)}…${doc.sha256.slice(-6)}` : "—"}</td>
                     <td className="tabular py-2 pr-3 text-right text-xs text-muted-foreground">{formatBytes(doc.size_bytes)}</td>
                     <td className="py-2 pr-3 text-xs text-muted-foreground">{doc.modified_at ? formatDateTime(doc.modified_at) : "—"}</td>
                     <td className="py-2 text-right">
@@ -348,6 +350,7 @@ function DocumentsCard({ data, onChunks, onRemove, onChanged }: { data: Knowledg
                       <Badge variant="warning">not indexed</Badge>
                     </td>
                     <td className="py-2 pr-3 text-right text-xs">—</td>
+                    <td className="py-2 pr-3 text-xs">—</td>
                     <td className="tabular py-2 pr-3 text-right text-xs">{formatBytes(file.size_bytes)}</td>
                     <td className="py-2 pr-3 text-xs">{formatDateTime(file.modified_at)}</td>
                     <td className="py-2 text-right text-xs">re-index to add</td>

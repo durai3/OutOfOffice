@@ -217,6 +217,32 @@ def create_all() -> None:
     engine = get_engine()
     Base.metadata.create_all(engine)
     logger.info("schema ready: %d table(s)", len(Base.metadata.tables))
+    ensure_search_indexes()
+
+
+def ensure_search_indexes() -> None:
+    """Postgres-only: functional GIN indexes backing full-text search.
+
+    No ``tsvector`` column is persisted - there is nothing for a migration
+    tool to manage - the index is built directly over the same expression
+    :mod:`src.db.repo`'s search queries match against, so Postgres can use it
+    without either query or index drifting out of sync with the other.
+    SQLite (development only) has no equivalent and falls back to a plain
+    substring match, so this is a no-op there.
+    """
+    if not is_postgres():
+        return
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_meeting_reports_search ON meeting_reports "
+            "USING GIN (to_tsvector('english', coalesce(executive_summary, '') || ' ' || coalesce(payload::text, '')))"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_commitments_search ON commitments "
+            "USING GIN (to_tsvector('english', coalesce(description, '') || ' ' || coalesce(owner, '')))"
+        ))
+    logger.info("full-text search indexes ready")
 
 
 def ping() -> bool:

@@ -423,7 +423,12 @@ class DelegateManager:
         consent_mode = mode_from_value(request.consent_mode or workspace.default_consent_mode.value)
 
         with session_scope() as session:
-            check_quota(session, self.user_id, own_keys=workspace.fully_byo)
+            check_quota(
+                session,
+                self.user_id,
+                own_keys=workspace.fully_byo,
+                org_settings=repo.org_settings_for_user(session, self.user_id),
+            )
             meeting_key = repo.unique_meeting_key(session, self.user_id, base_key)
             from src.auth.security import new_job_token
 

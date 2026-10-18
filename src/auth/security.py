@@ -22,6 +22,7 @@ import hashlib
 import logging
 import os
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -175,6 +176,102 @@ def decode_access_token(token: str) -> dict[str, Any]:
     return payload
 
 
+OAUTH_STATE_TTL_MINUTES: int = 10
+"""How long a user has to complete a provider's consent screen before the state token expires."""
+
+
+def create_oauth_state_token(user_id: uuid.UUID, connector_type: str, frontend_origin: str) -> str:
+    """Sign a short-lived token proving who started an OAuth connect flow.
+
+    A connector's callback is a plain browser redirect from the provider with
+    no ``Authorization`` header, so it cannot use the normal session-auth
+    dependency. This is what it trusts instead. Deliberately a distinct
+    ``typ`` from :func:`create_access_token` (never ``"access"``) so a leaked
+    state value - it round-trips through a third party's redirect, where a
+    Referer header or browser history could expose it - can never be replayed
+    as a real session token.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "connector_type": connector_type,
+        "origin": frontend_origin,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=OAUTH_STATE_TTL_MINUTES)).timestamp()),
+        "typ": "oauth_state",
+    }
+    return jwt.encode(payload, secret_key(), algorithm=ALGORITHM)
+
+
+def decode_oauth_state_token(token: str) -> dict[str, Any]:
+    """Verify and decode an OAuth state token.
+
+    Raises:
+        AuthError: expired, tampered with, or not a state token.
+    """
+    try:
+        payload = jwt.decode(token, secret_key(), algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError as exc:
+        raise AuthError("this connection attempt expired; try connecting again") from exc
+    except jwt.InvalidTokenError as exc:
+        raise AuthError("invalid state token") from exc
+    if payload.get("typ") != "oauth_state":
+        raise AuthError("wrong token type")
+    return payload
+
+
+OAUTH_LOGIN_STATE_TTL_MINUTES: int = 10
+"""How long a user has to complete Google/Microsoft's consent screen before the login state token expires."""
+
+
+def create_oauth_login_state_token(*, provider: str, frontend_origin: str, accept_terms: bool = False) -> str:
+    """Sign a short-lived CSRF nonce for a pre-login "Continue with Google/Microsoft" flow.
+
+    There is no authenticated user when this is minted - unlike
+    :func:`create_oauth_state_token`, whose subject is a real ``user_id`` for
+    an already-signed-in account connecting a *connector* - so the subject
+    here is a random nonce. Deliberately a distinct ``typ``
+    (``"oauth_login_state"``, never ``"access"`` or ``"oauth_state"``) so a
+    leaked state value - it round-trips through a third party's redirect,
+    where a Referer header or browser history could expose it - can never be
+    replayed as a real session token or as a connector's state token.
+
+    ``accept_terms`` carries the signup page's "I accept the Terms of
+    Service and Privacy Policy" checkbox through the redirect round-trip -
+    the OAuth callback is a plain browser GET with no request body, so this
+    is the only way a brand-new account's consent reaches the server (see
+    :func:`src.auth.service.provision_or_link_oauth_account`).
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": secrets.token_urlsafe(16),
+        "provider": provider,
+        "origin": frontend_origin,
+        "accept_terms": accept_terms,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=OAUTH_LOGIN_STATE_TTL_MINUTES)).timestamp()),
+        "typ": "oauth_login_state",
+    }
+    return jwt.encode(payload, secret_key(), algorithm=ALGORITHM)
+
+
+def decode_oauth_login_state_token(token: str) -> dict[str, Any]:
+    """Verify and decode a login-state token.
+
+    Raises:
+        AuthError: expired, tampered with, or not a login-state token.
+    """
+    try:
+        payload = jwt.decode(token, secret_key(), algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError as exc:
+        raise AuthError("this sign-in attempt expired; try again") from exc
+    except jwt.InvalidTokenError as exc:
+        raise AuthError("invalid state token") from exc
+    if payload.get("typ") != "oauth_login_state":
+        raise AuthError("wrong token type")
+    return payload
+
+
 def new_refresh_token() -> tuple[str, str]:
     """A fresh opaque refresh token and the hash to store. Returns ``(token, token_hash)``."""
     token = secrets.token_urlsafe(48)
@@ -229,5 +326,16 @@ def new_link_code() -> str:
 
 def new_job_token() -> tuple[str, str]:
     """A bearer token for one worker container, and its stored hash."""
+    token = secrets.token_urlsafe(32)
+    return token, hash_token(token)
+
+
+def new_invite_token() -> tuple[str, str]:
+    """A bearer token for one organization invite, and its stored hash.
+
+    Opaque and DB-backed rather than a signed JWT, since an invite must be
+    revocable and long-lived - the same reasoning behind
+    :func:`new_refresh_token`.
+    """
     token = secrets.token_urlsafe(32)
     return token, hash_token(token)

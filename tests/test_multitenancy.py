@@ -211,6 +211,32 @@ class Account:
             "POST", "/api/v1/knowledge/upload", token=self.access, raw=raw, content_type=content_type
         )
 
+    @classmethod
+    def signup_via_invite(cls, name: str, email: str, invite_token: str, template: str = "balanced") -> Account:
+        """Create a real account that redeems an organization invite at signup."""
+        password = "deleg8-test-" + uuid.uuid4().hex[:12]
+        payload = request(
+            "POST", "/api/v1/auth/signup",
+            body={
+                "email": email,
+                "password": password,
+                "display_name": name,
+                "accept_terms": True,
+                "policy_template": template,
+                "invite_token": invite_token,
+            },
+        )
+        account = payload["account"]
+        return cls(
+            email=email,
+            password=password,
+            name=name,
+            access=payload["access_token"],
+            refresh=payload["refresh_token"],
+            principal=(account.get("principal") or {}).get("slug", ""),
+            user_id=account["id"],
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Checks
@@ -822,6 +848,81 @@ def check_history_isolation(report: Report, alice: Account, beth: Account) -> No
     )
 
 
+def check_organization_isolation(report: Report, beth: Account) -> None:
+    """Organizations add seats/admin above the per-user tenancy - they must
+    not leak across organizations, and must not loosen the per-tenant content
+    isolation every other check in this file already proves."""
+    print("\n== organizations ==", flush=True)
+    alice = Account.signup("Org Owner")
+    org = alice.post("/api/v1/organizations", {"name": "Alice's Org"})
+    report.check("creating an organization makes the caller its owner", org["role"] == "owner")
+
+    report.check(
+        "an unrelated account cannot read another org's members",
+        status_of("GET", "/api/v1/organizations/members", token=beth.access) == 403,
+    )
+    report.check(
+        "an unrelated account cannot invite into another org",
+        status_of(
+            "POST", "/api/v1/organizations/invites", token=beth.access, body={"email": "x@example.com", "role": "member"}
+        )
+        == 403,
+    )
+
+    invitee_email = f"carol.{uuid.uuid4().hex[:8]}@example.com"
+    invite = alice.post("/api/v1/organizations/invites", {"email": invitee_email, "role": "member"})
+    token = invite["invite_url"].rsplit("/", 1)[-1]
+    report.check("an invite link is minted", bool(token) and invite["email"] == invitee_email)
+
+    carol = Account.signup_via_invite("Carol Carpenter", invitee_email, token)
+    members = alice.get("/api/v1/organizations/members")
+    report.check(
+        "the owner sees the new member, with usage visible",
+        any(
+            m["user_id"] == carol.user_id and m["role"] == "member" and m["meetings_this_month"] is not None
+            for m in members
+        ),
+    )
+
+    carol_view = carol.get("/api/v1/organizations/members")
+    report.check(
+        "a plain member sees their teammates but not usage figures",
+        any(m["user_id"] == alice.user_id for m in carol_view)
+        and all(m.get("meetings_this_month") is None for m in carol_view),
+    )
+    report.check(
+        "a plain member cannot invite",
+        status_of(
+            "POST", "/api/v1/organizations/invites", token=carol.access, body={"email": "x@example.com", "role": "member"}
+        )
+        == 403,
+    )
+
+    report.check(
+        "being teammates does not merge content: carol's knowledge index is still her own",
+        carol.get("/api/v1/knowledge")["collection"] != alice.get("/api/v1/knowledge")["collection"],
+    )
+    report.check(
+        "being teammates does not merge content: carol's dashboard is scoped to carol",
+        carol.get("/api/v1/dashboard")["profile"]["user_id"] == carol.principal,
+    )
+
+    report.check(
+        "the sole remaining owner cannot leave their own organization",
+        status_of("POST", "/api/v1/organizations/leave", token=alice.access) == 400,
+    )
+
+    alice.delete(f"/api/v1/organizations/members/{carol.user_id}")
+    report.check(
+        "removing a member leaves their account and data intact",
+        carol.get("/api/v1/dashboard")["profile"]["user_id"] == carol.principal,
+    )
+    report.check(
+        "a removed member's organization membership is actually gone",
+        status_of("GET", "/api/v1/organizations/members", token=carol.access) == 403,
+    )
+
+
 def check_account_deletion(report: Report) -> None:
     """Deleting an account really removes it."""
     print("\n== account deletion ==", flush=True)
@@ -863,6 +964,7 @@ def main() -> int:
             check_container_dispatch(report, alice)
         check_consent(report, alice)
         check_history_isolation(report, alice, beth)
+        check_organization_isolation(report, beth)
         check_account_deletion(report)
     except Exception as exc:  # noqa: BLE001 - the report is the product of this script
         print(f"\n[ERROR] the run stopped early: {exc}", flush=True)

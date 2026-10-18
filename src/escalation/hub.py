@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import Conflict, InvalidToken, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
@@ -76,6 +76,15 @@ TenantCommand = Callable[[str], Awaitable[str]]
 """A per-tenant bot command handler: receives the argument string, returns the reply."""
 
 LINK_CODE_TTL = timedelta(hours=24)
+
+_CALENDAR_CALLBACK_PREFIX: str = "cal"
+"""Inline-button callback prefix for a calendar reminder's "Deleg8 it" button.
+
+Distinct from :data:`src.escalation.telegram_bot._CALLBACK_PREFIX` ("esc"): a
+calendar reminder sets a flag for later ("join automatically when it
+starts"), not a waiting Future an escalation has to resolve, so it gets its
+own handler rather than overloading ``_on_button``.
+"""
 
 SETUP_INSTRUCTIONS: str = """\
 How to connect your phone to DELEG8
@@ -165,6 +174,7 @@ class TelegramHub:
         for name in ("status", "leave", "conclude", "consent", "commitments"):
             app.add_handler(CommandHandler(name, self._tenant_command(name)))
         app.add_handler(CallbackQueryHandler(self._on_button, pattern=rf"^{_CALLBACK_PREFIX}\|"))
+        app.add_handler(CallbackQueryHandler(self._on_calendar_button, pattern=rf"^{_CALENDAR_CALLBACK_PREFIX}\|"))
         try:
             await app.initialize()
         except InvalidToken as exc:
@@ -288,6 +298,29 @@ class TelegramHub:
                 hint = _delivery_hint(exc, self.bot_username)
                 logger.error("message to chat %s not delivered: %s. %s", chat_id, exc, hint)
                 return DeliveryReceipt(delivered=False, channel="telegram", detail=f"{exc}. {hint}")
+        return DeliveryReceipt(delivered=True, channel="telegram", message_id=message.message_id)
+
+    async def send_calendar_reminder(
+        self, chat_id: int, *, event_id: uuid.UUID, title: str, when: str
+    ) -> DeliveryReceipt:
+        """Send the T-15-minutes reminder for a delegable meeting, with a "Deleg8 it" button.
+
+        The button only ever sets the event's flag for the auto-dispatch pass
+        at the meeting's start time (:class:`~src.calendar.scheduler.CalendarScheduler`)
+        - it does not join a meeting that has not started yet.
+        """
+        if self._app is None or not self._started:
+            return DeliveryReceipt(delivered=False, channel="telegram", detail="the telegram hub is not running")
+        text = f"\U0001F4C5 “{title}” starts at {when}. Want your delegate to join automatically?"
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("\U0001F916 Deleg8 it", callback_data=f"{_CALENDAR_CALLBACK_PREFIX}|{event_id}|deleg8")]]
+        )
+        try:
+            message = await self._app.bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+        except TelegramError as exc:
+            hint = _delivery_hint(exc, self.bot_username)
+            logger.error("calendar reminder for event %s not delivered to %s: %s", event_id, chat_id, exc)
+            return DeliveryReceipt(delivered=False, channel="telegram", detail=f"{exc}. {hint}")
         return DeliveryReceipt(delivered=True, channel="telegram", message_id=message.message_id)
 
     async def send_escalation(
@@ -583,6 +616,39 @@ class TelegramHub:
             await query.answer(f"{_OUTCOME_LABEL[outcome]} recorded.")
         else:
             await query.answer("That escalation has already been resolved or has expired.", show_alert=True)
+
+    async def _on_calendar_button(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle a "Deleg8 it" tap on a calendar reminder: flag the event, confirm, drop the button."""
+        query = update.callback_query
+        chat = update.effective_chat
+        if query is None or not query.data or chat is None:
+            return
+        user_id = self.route(chat.id)
+        if user_id is None:
+            await query.answer("This chat is not linked to a DELEG8 account.", show_alert=True)
+            return
+        parts = query.data.split("|")
+        if len(parts) != 3 or parts[0] != _CALENDAR_CALLBACK_PREFIX or parts[2] != "deleg8":
+            await query.answer("Unrecognised action.", show_alert=True)
+            return
+        try:
+            event_id = uuid.UUID(parts[1])
+        except ValueError:
+            await query.answer("Unrecognised event.", show_alert=True)
+            return
+        with session_scope() as session:
+            row = repo.set_calendar_event_deleg8(session, user_id, event_id, requested=True)
+        if row is None:
+            await query.answer("That meeting is no longer on your calendar.", show_alert=True)
+            return
+        await query.answer("Got it — your delegate will join automatically.")
+        if query.message is not None and query.message.text:
+            try:
+                await query.edit_message_text(
+                    f"{query.message.text}\n\n✅ Deleg8'd — joining automatically.", reply_markup=None
+                )
+            except TelegramError:
+                pass
 
     def _on_polling_error(self, error: TelegramError) -> None:
         if isinstance(error, Conflict):

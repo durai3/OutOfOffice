@@ -359,7 +359,8 @@ async def dashboard(request: Request, context: ActiveContext) -> DashboardRespon
 
     resolved = resolve(context.session, context.user_id)
     own_keys = not (resolved.uses_platform_llm or resolved.uses_platform_voice)
-    quota = quota_status(context.session, context.user_id, own_keys=own_keys)
+    org_settings = context.org.settings if context.org is not None else None
+    quota = quota_status(context.session, context.user_id, own_keys=own_keys, org_settings=org_settings)
     pending = repo.sum_action_items(context.session, context.user_id) + sum(
         len(m.pending_actions) for m in live
     )

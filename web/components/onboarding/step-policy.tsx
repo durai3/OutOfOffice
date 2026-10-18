@@ -46,13 +46,13 @@ export function PolicyStep({ onDone }: { onDone: () => Promise<void> | void }) {
   const byTier = (tier: PolicyTier) => rules.filter((r) => r.tier === tier);
 
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-5 text-sm">
       <div>
         <p className="font-medium">What your delegate will do right now</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
           {(["GREEN", "YELLOW", "RED"] as PolicyTier[]).map((tier) => (
-            <div key={tier} className="rounded-md border border-border p-3">
-              <p className={cn("text-xs font-semibold", TIER_STYLE[tier])}>
+            <div key={tier} className="rounded-lg border border-border p-3">
+              <p className={cn("font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em]", TIER_STYLE[tier])}>
                 {tier} · {TIER_MEANING[tier]}
               </p>
               <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
@@ -66,7 +66,7 @@ export function PolicyStep({ onDone }: { onDone: () => Promise<void> | void }) {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           Every rule is editable on the{" "}
-          <Link href="/policy" className="underline hover:text-foreground">Policy</Link> page.
+          <Link href="/policy" className="underline underline-offset-2 hover:text-foreground">Policy</Link> page.
         </p>
       </div>
 
@@ -74,7 +74,7 @@ export function PolicyStep({ onDone }: { onDone: () => Promise<void> | void }) {
         <p className="font-medium">Start from a different template</p>
         <div className="mt-2 space-y-2">
           {(templates.data ?? []).map((template) => (
-            <div key={template.key} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
+            <div key={template.key} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">{template.name}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{template.summary}</p>

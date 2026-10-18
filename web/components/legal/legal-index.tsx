@@ -11,7 +11,8 @@ export function LegalIndex() {
   const { data, loading } = useApi(api.legalDocuments);
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
-      <h1 className="text-xl font-semibold tracking-tight">Legal</h1>
+      <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Legal</p>
+      <h1 className="mt-1.5 text-xl font-semibold tracking-tight">Legal documents</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         What DELEG8 does with meetings it joins, and what you take responsibility for by sending it.
       </p>
@@ -20,13 +21,16 @@ export function LegalIndex() {
         {(data ?? []).map((doc) => (
           <Link key={doc.key} href={`/legal/${doc.key}`}>
             <Card className="transition-colors hover:bg-accent/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="size-4" aria-hidden="true" /> {doc.title}
-                </CardTitle>
-                <CardDescription>
-                  Version {doc.version} · effective {doc.effective_date}
-                </CardDescription>
+              <CardHeader className="flex-row items-start gap-3">
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-foreground" aria-hidden="true">
+                  <FileText className="size-4" />
+                </span>
+                <span className="min-w-0">
+                  <CardTitle>{doc.title}</CardTitle>
+                  <CardDescription className="mt-0.5">
+                    Version {doc.version} · effective {doc.effective_date}
+                  </CardDescription>
+                </span>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">{doc.summary}</CardContent>
             </Card>

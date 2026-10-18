@@ -505,6 +505,45 @@ export interface PrincipalSummary {
   aliases: string[];
 }
 
+export type OrganizationRole = "owner" | "admin" | "member";
+
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  role: OrganizationRole;
+  plan: string;
+  seats_used: number;
+  seats_limit: number;
+}
+
+export interface OrganizationMember {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: OrganizationRole;
+  joined_at: string;
+  meetings_this_month?: number | null;
+  llm_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+}
+
+export interface OrganizationInvite {
+  id: string;
+  email: string;
+  role: OrganizationRole;
+  invite_url?: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface InvitePreview {
+  org_name: string;
+  email: string;
+  role: OrganizationRole;
+  valid: boolean;
+}
+
 export interface Account {
   id: string;
   email: string;
@@ -518,6 +557,7 @@ export interface Account {
   onboarding_complete: boolean;
   outstanding_legal: string[];
   settings: Record<string, unknown>;
+  organization: OrganizationSummary | null;
 }
 
 export interface TokenResponse {
@@ -534,6 +574,7 @@ export interface SignupRequest {
   display_name: string;
   accept_terms: boolean;
   policy_template: string;
+  invite_token?: string | null;
 }
 
 export interface LegalSummary {
@@ -697,6 +738,172 @@ export interface MeetingUsage {
   ended_at: string | null;
   status: string;
   units: Record<string, number>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Integrations, search, commitments tracker, analytics.               */
+/* ------------------------------------------------------------------ */
+
+export type ConnectorType = "slack" | "ms_teams" | "jira" | "linear" | "asana" | "google_calendar" | "email" | "notion";
+export type AuthMode = "token" | "oauth";
+
+export interface ConnectorField {
+  name: string;
+  label: string;
+  secret: boolean;
+  placeholder: string;
+}
+
+export interface ConnectorSummary {
+  connector_type: ConnectorType | string;
+  label: string;
+  auth_mode: AuthMode;
+  available: boolean;
+  unavailable_reason: string | null;
+  docs_url: string;
+  fields: ConnectorField[];
+  is_connected: boolean;
+  is_enabled: boolean;
+  config: Record<string, unknown>;
+  last_synced_at: string | null;
+  last_error: string | null;
+}
+
+export interface OAuthStartResponse {
+  redirect_url: string;
+}
+
+export interface ConnectorOption {
+  id: string;
+  name: string;
+}
+
+/** Posted by the OAuth callback popup to window.opener; see src/api/integrations.py's _oauth_result_page. */
+export interface OAuthPopupMessage {
+  source: "deleg8-oauth";
+  connector_type: string;
+  ok: boolean;
+  message?: string;
+}
+
+/** Posted by the "Continue with Google/Microsoft" login popup; see src/auth/routes.py's _login_result_page. */
+export interface OAuthLoginPopupMessage {
+  source: "deleg8-oauth-login";
+  ok: boolean;
+  message?: string;
+  tokens?: TokenResponse;
+}
+
+/* ------------------------------------------------------------------ */
+/* Calendar accounts and synced meetings (src/api/calendar.py).        */
+/* ------------------------------------------------------------------ */
+
+export type CalendarProviderId = "google" | "microsoft";
+
+export interface CalendarProviderInfo {
+  provider: CalendarProviderId | string;
+  label: string;
+  available: boolean;
+  unavailable_reason: string | null;
+}
+
+export interface CalendarAccount {
+  id: string;
+  provider: CalendarProviderId | string;
+  email: string;
+  label: string;
+  is_enabled: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+}
+
+export interface CalendarEvent {
+  id: string;
+  calendar_account_id: string;
+  account_email: string;
+  provider: string;
+  title: string;
+  join_url: string;
+  html_link: string;
+  start_at: string;
+  end_at: string | null;
+  delegable: boolean;
+  deleg8_requested: boolean;
+  dispatched: boolean;
+  meeting_id: string | null;
+}
+
+/** Posted by the calendar OAuth callback popup; see src/api/calendar.py's _oauth_result_page. */
+export interface CalendarOAuthPopupMessage {
+  source: "deleg8-calendar-oauth";
+  ok: boolean;
+  message?: string;
+}
+
+export interface SearchResult {
+  type: "meeting" | "commitment";
+  id: string;
+  title: string;
+  excerpt: string;
+  meeting_key: string | null;
+  occurred_at: string | null;
+}
+
+export interface SearchResponse {
+  query: string;
+  total: number;
+  results: SearchResult[];
+}
+
+export type CommitmentStatus = "probable" | "confirmed" | "done" | "dropped";
+
+export interface CommitmentTrackerRow {
+  id: string;
+  meeting_id: string;
+  meeting_key: string | null;
+  owner: string;
+  requested_by: string;
+  description: string;
+  due_iso: string;
+  due_text: string;
+  status: CommitmentStatus;
+  overdue: boolean;
+}
+
+export interface MeetingHealth {
+  meeting_id: string;
+  meeting_key: string;
+  concluded_at: string;
+  decision_clarity: number;
+  participation_score: number;
+  agenda_adherence: number;
+  action_item_clarity: number;
+  health_score: number;
+  flags: string[];
+}
+
+export interface WeeklyHealthPoint {
+  week_start: string;
+  meetings: number;
+  decision_clarity: number;
+  participation_score: number;
+  agenda_adherence: number;
+  action_item_clarity: number;
+  health_score: number;
+}
+
+export interface HealthAnalyticsResponse {
+  weekly_trend: WeeklyHealthPoint[];
+  meetings: MeetingHealth[];
+}
+
+export interface RoiResponse {
+  days: number;
+  meetings_attended: number;
+  decisions_made: number;
+  completion_pct: number;
+  hours_saved: number;
+  estimated_value_usd: number;
 }
 
 export interface RecentMeeting {

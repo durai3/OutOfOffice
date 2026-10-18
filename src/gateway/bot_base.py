@@ -31,6 +31,7 @@ and belong next to the code that uses them, not centralised here.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -127,6 +128,59 @@ def chromium_pulse_env(pulse_sink: str, pulse_source: str) -> dict[str, str]:
     if pulse_source:
         overrides["PULSE_SOURCE"] = pulse_source
     return overrides
+
+
+PIN_MICROPHONE_SCRIPT: str = """
+(() => {
+  const WANTED = %s;
+  const media = navigator.mediaDevices;
+  if (!media || !media.getUserMedia) return;
+  const original = media.getUserMedia.bind(media);
+  media.getUserMedia = async (constraints) => {
+    try {
+      if (constraints && constraints.audio) {
+        const devices = await media.enumerateDevices();
+        const match = devices.find(
+          (d) => d.kind === 'audioinput' && d.label && d.label.includes(WANTED)
+        );
+        if (match) {
+          const audio = typeof constraints.audio === 'object' ? { ...constraints.audio } : {};
+          audio.deviceId = { exact: match.deviceId };
+          constraints = { ...constraints, audio };
+        }
+      }
+    } catch (err) {
+      /* fall through to the request as the page made it */
+    }
+    return original(constraints);
+  };
+})();
+"""
+"""Pin the page's microphone to one device, whatever the meeting UI asks for.
+
+The delegate's voice reaches the call through a virtual cable that the meeting
+app has to capture from, and the usual way to arrange that - making the cable
+the OS default input - is not always available: some virtual devices accept the
+assignment, report success, and are then silently reverted by Core Audio, so
+the app goes on using whatever else is default and the room never hears the
+delegate at all. Clicking through the meeting's own audio settings works but
+depends on scraping a dialog that changes without notice.
+
+This does the same thing at the source instead: every ``getUserMedia`` call the
+page makes is rewritten to pin the audio input to the named device. If the
+device is not there, or anything else goes wrong, the original request is made
+untouched - the page can always still get a microphone.
+"""
+
+
+def pin_microphone_script(device_name: str) -> str:
+    """:data:`PIN_MICROPHONE_SCRIPT` bound to ``device_name`` (matched as a substring).
+
+    A substring match is deliberate: Chromium labels devices differently from
+    the OS ("Microsoft Teams Audio" is "Microsoft Teams Audio Device (Virtual)"
+    there), so an exact comparison would never fire.
+    """
+    return PIN_MICROPHONE_SCRIPT % json.dumps(device_name)
 
 
 class MeetConfigError(RuntimeError):

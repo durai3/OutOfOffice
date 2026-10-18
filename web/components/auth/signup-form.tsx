@@ -2,20 +2,23 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { AlertCircle, ShieldCheck } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AlertCircle, ShieldCheck, Users } from "lucide-react";
 import { AuthLayout } from "@/components/auth/auth-layout";
+import { SsoButtons } from "@/components/auth/sso-buttons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import type { PolicyTemplate } from "@/lib/types";
+import type { InvitePreview, PolicyTemplate } from "@/lib/types";
 
 export function SignupForm() {
   const { signup } = useAuth();
   const router = useRouter();
+  const inviteToken = useSearchParams().get("invite");
+  const [invite, setInvite] = React.useState<InvitePreview | null>(null);
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -23,6 +26,7 @@ export function SignupForm() {
   const [accepted, setAccepted] = React.useState(false);
   const [templates, setTemplates] = React.useState<PolicyTemplate[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  const [ssoError, setSsoError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
@@ -32,6 +36,19 @@ export function SignupForm() {
       .then(setTemplates)
       .catch(() => setTemplates([]));
   }, []);
+
+  React.useEffect(() => {
+    if (!inviteToken) return;
+    void api
+      .previewInvite(inviteToken)
+      .then((preview) => {
+        if (preview.valid) {
+          setInvite(preview);
+          setEmail(preview.email);
+        }
+      })
+      .catch(() => undefined);
+  }, [inviteToken]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -44,6 +61,7 @@ export function SignupForm() {
         display_name: name.trim(),
         accept_terms: accepted,
         policy_template: template,
+        invite_token: invite ? inviteToken : null,
       });
       router.replace("/onboarding");
     } catch (err) {
@@ -59,11 +77,58 @@ export function SignupForm() {
       subtitle="Takes about a minute. You choose what your delegate is allowed to say."
       footer={
         <>
-          Already have one? <Link href="/login" className="font-medium text-foreground underline">Sign in</Link>
+          Already have one?{" "}
+          <Link href="/login" className="font-medium text-foreground underline underline-offset-2">
+            Sign in
+          </Link>
         </>
       }
     >
-      <form onSubmit={submit} className="space-y-4">
+      <div className="space-y-4">
+        {invite ? (
+          <p className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/5 p-2.5 text-xs text-foreground">
+            <Users className="mt-0.5 size-3.5 shrink-0 text-info" aria-hidden="true" />
+            You&apos;re invited to join <strong>{invite.org_name}</strong> as {invite.role}.
+          </p>
+        ) : null}
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-card/60 p-3 text-xs">
+          <input
+            type="checkbox"
+            checked={accepted}
+            onChange={(e) => setAccepted(e.target.checked)}
+            className="mt-0.5 accent-[var(--primary)]"
+          />
+          <span className="text-muted-foreground">
+            I accept the{" "}
+            <Link href="/legal/terms" className="underline underline-offset-2 hover:text-foreground" target="_blank">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link href="/legal/privacy" className="underline underline-offset-2 hover:text-foreground" target="_blank">
+              Privacy Policy
+            </Link>
+            , and I confirm I will only send a delegate to meetings I am entitled to bring one to.
+          </span>
+        </label>
+        <SsoButtons
+          mode="signup"
+          disabled={!accepted}
+          onAuthenticated={(account) => router.replace(account.onboarding_complete ? "/" : "/onboarding")}
+          onError={setSsoError}
+        />
+        {ssoError ? (
+          <p className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/5 p-2.5 text-xs text-danger">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            {ssoError}
+          </p>
+        ) : null}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="h-px flex-1 bg-border" />
+          or create one with email
+          <div className="h-px flex-1 bg-border" />
+        </div>
+      </div>
+      <form onSubmit={submit} className="mt-4 space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="name">Your name</Label>
           <Input
@@ -78,7 +143,16 @@ export function SignupForm() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            readOnly={invite !== null}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          {invite ? <p className="text-[11px] text-muted-foreground">This invite was sent to this address.</p> : null}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="password">Password</Label>
@@ -96,7 +170,9 @@ export function SignupForm() {
 
         {templates.length > 0 ? (
           <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Starting policy</legend>
+            <legend className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
+              Starting policy
+            </legend>
             <p className="text-[11px] text-muted-foreground">
               You can change every rule afterwards. All of them refuse pay, contracts and personal matters.
             </p>
@@ -105,7 +181,7 @@ export function SignupForm() {
                 <label
                   key={item.key}
                   className={cn(
-                    "flex cursor-pointer gap-3 rounded-md border p-3 transition-colors",
+                    "flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors",
                     template === item.key ? "border-primary bg-accent" : "border-border hover:bg-accent/50",
                   )}
                 >
@@ -132,30 +208,14 @@ export function SignupForm() {
           </fieldset>
         ) : null}
 
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-3 text-xs">
-          <input
-            type="checkbox"
-            checked={accepted}
-            onChange={(e) => setAccepted(e.target.checked)}
-            className="mt-0.5 accent-[var(--primary)]"
-            required
-          />
-          <span className="text-muted-foreground">
-            I accept the{" "}
-            <Link href="/legal/terms" className="underline hover:text-foreground" target="_blank">Terms of Service</Link> and{" "}
-            <Link href="/legal/privacy" className="underline hover:text-foreground" target="_blank">Privacy Policy</Link>, and I
-            confirm I will only send a delegate to meetings I am entitled to bring one to.
-          </span>
-        </label>
-
         {error ? (
-          <p className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger/5 p-2.5 text-xs text-danger">
+          <p className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/5 p-2.5 text-xs text-danger">
             <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             {error}
           </p>
         ) : null}
 
-        <Button type="submit" className="w-full" loading={busy} disabled={!accepted}>
+        <Button type="submit" size="lg" className="w-full" loading={busy} disabled={!accepted}>
           <ShieldCheck className="size-4" /> Create account
         </Button>
       </form>

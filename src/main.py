@@ -53,15 +53,22 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.api.admin import router as admin_router
+from src.api.analytics import router as analytics_router
+from src.api.calendar import router as calendar_router
+from src.api.commitments_tracker import router as commitments_tracker_router
+from src.api.integrations import router as integrations_router
 from src.api.legal import router as legal_router
 from src.api.onboarding import router as onboarding_router
+from src.api.organizations import router as organizations_router
 from src.api.routes import router as console_router
+from src.api.search import router as search_router
 from src.api.settings import router as settings_router
 from src.api.usage import router as usage_router
 from src.api.worker import router as worker_router
 from src.auth.routes import router as auth_router
 from src.auth.security import AuthError, require_production_secrets
 from src.brain.profile_store import ProfileNotFoundError
+from src.calendar.scheduler import CalendarScheduler
 from src.db.base import create_all, describe_backend, init_engine, ping
 from src.dispatch.base import configured_mode
 from src.dispatch.container import ContainerDispatcher
@@ -154,11 +161,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     workspaces = WorkspaceManager(hub)
     workspaces.start_sweeper()
 
+    calendar_scheduler = CalendarScheduler(workspaces, hub)
+    calendar_scheduler.start()
+
     dispatcher = ContainerDispatcher()
     dispatch_ok, dispatch_detail = await dispatcher.available()
 
     app.state.hub = hub
     app.state.workspaces = workspaces
+    app.state.calendar_scheduler = calendar_scheduler
     app.state.container_dispatcher = dispatcher
     app.state.dispatch_detail = dispatch_detail
     app.state.started_at = datetime.now(timezone.utc)
@@ -186,6 +197,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await calendar_scheduler.stop()
         await workspaces.shutdown()
         await hub.stop()
         logger.info("DELEG8 shut down cleanly")
@@ -274,6 +286,12 @@ app.include_router(settings_router)
 app.include_router(usage_router)
 app.include_router(worker_router)
 app.include_router(admin_router)
+app.include_router(integrations_router)
+app.include_router(calendar_router)
+app.include_router(search_router)
+app.include_router(commitments_tracker_router)
+app.include_router(analytics_router)
+app.include_router(organizations_router)
 app.include_router(console_router)
 
 

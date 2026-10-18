@@ -14,7 +14,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { api, errorMessage } from "@/lib/api";
 import { clearTokens, getTokens, setTokens, subscribe } from "@/lib/auth-store";
-import type { Account, SignupRequest } from "@/lib/types";
+import type { Account, SignupRequest, TokenResponse } from "@/lib/types";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous";
 
@@ -24,6 +24,7 @@ interface AuthValue {
   error: string | null;
   login: (email: string, password: string) => Promise<Account>;
   signup: (body: SignupRequest) => Promise<Account>;
+  completeOAuthLogin: (payload: TokenResponse) => Account;
   logout: () => Promise<void>;
   reload: () => Promise<Account | null>;
   setAccount: (account: Account) => void;
@@ -86,6 +87,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return payload.account;
   }, []);
 
+  // The SSO popup already did the signup/login round trip server-side and
+  // posted back a full TokenResponse - no extra request needed here, just
+  // the same local-state update login/signup already do.
+  const completeOAuthLogin = React.useCallback((payload: TokenResponse) => {
+    setError(null);
+    setTokens({ access: payload.access_token, refresh: payload.refresh_token });
+    setAccount(payload.account);
+    setStatus("authenticated");
+    return payload.account;
+  }, []);
+
   const logout = React.useCallback(async () => {
     const tokens = getTokens();
     if (tokens) {
@@ -104,8 +116,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const value = React.useMemo<AuthValue>(
-    () => ({ status, account, error, login, signup, logout, reload, setAccount }),
-    [status, account, error, login, signup, logout, reload],
+    () => ({ status, account, error, login, signup, completeOAuthLogin, logout, reload, setAccount }),
+    [status, account, error, login, signup, completeOAuthLogin, logout, reload],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

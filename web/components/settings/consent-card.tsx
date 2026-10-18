@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ShieldAlert } from "lucide-react";
+import { AlertTriangle, Check, ShieldAlert } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,7 +46,7 @@ export function ConsentCard({ settings, onSaved }: { settings: SettingsResponse;
             <label
               key={option.key}
               className={cn(
-                "flex cursor-pointer gap-3 rounded-md border p-3 transition-colors",
+                "flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors",
                 mode === option.key ? "border-primary bg-accent" : "border-border hover:bg-accent/50",
               )}
             >
@@ -57,14 +57,16 @@ export function ConsentCard({ settings, onSaved }: { settings: SettingsResponse;
                 onChange={() => setMode(option.key)}
                 className="mt-1 accent-[var(--primary)]"
               />
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className="text-sm font-medium">{option.name}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">{option.summary}</span>
               </span>
+              {mode === option.key ? <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
             </label>
           ))}
         </div>
-        <p className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-[11px] text-muted-foreground">
+        <p className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5 text-[11px] text-muted-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning-foreground" aria-hidden="true" />
           These are tools to help you comply, not legal advice. You are responsible for having the right to bring a
           delegate to a given meeting.
         </p>

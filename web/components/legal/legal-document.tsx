@@ -20,12 +20,12 @@ export function LegalDocumentView({ documentKey }: { documentKey: string }) {
       {loading ? <Spinner /> : null}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {data ? (
-        <>
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-xl border border-border bg-card p-6 sm:p-8">
+          <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
             Version {data.version} · effective {data.effective_date}
           </p>
           <Markdown className="mt-4">{data.body}</Markdown>
-        </>
+        </div>
       ) : null}
     </div>
   );

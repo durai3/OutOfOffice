@@ -50,7 +50,7 @@ export function DocumentsStep({ onDone }: { onDone: () => Promise<void> | void }
         <Upload className="size-4" /> Choose files
       </Button>
       {documents.length ? (
-        <ul className="space-y-1 text-xs text-muted-foreground">
+        <ul className="space-y-1 rounded-lg border border-border p-3 text-xs text-muted-foreground">
           {documents.map((doc) => (
             <li key={doc.source}>
               {doc.source} — {doc.chunks} chunk{doc.chunks === 1 ? "" : "s"}

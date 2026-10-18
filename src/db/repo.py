@@ -19,23 +19,33 @@ import logging
 import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Text, cast, delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from src.db.base import is_postgres
 from src.db.models import (
+    AuthProvider,
     AuthSession,
+    CalendarAccount,
+    CalendarEvent,
     CommitmentRow,
     ConsentRecord,
     Document,
     Dossier,
+    Integration,
     KnowledgeEntry,
     LegalAcceptance,
     Meeting,
+    MeetingMetrics,
     MeetingReport,
     MeetingStatus,
     NotificationChannel,
+    OAuthIdentity,
+    Organization,
+    OrganizationInvite,
+    OrganizationMember,
     PolicyRule,
     Principal,
     UsageEvent,
@@ -73,16 +83,22 @@ def create_user(
     session: Session,
     *,
     email: str,
-    password_hash: str,
+    password_hash: str | None,
     display_name: str,
     role: str = "user",
+    auth_provider: str = AuthProvider.LOCAL.value,
 ) -> User:
-    """Insert a user. The caller is responsible for hashing the password."""
+    """Insert a user. The caller is responsible for hashing the password, if any.
+
+    ``password_hash`` is ``None`` for an SSO-only account (``auth_provider``
+    other than ``"local"``).
+    """
     user = User(
         email=normalise_email(email),
         password_hash=password_hash,
         display_name=display_name.strip(),
         role=role,
+        auth_provider=auth_provider,
         status=UserStatus.ACTIVE.value,
         onboarding={},
         settings={},
@@ -137,6 +153,34 @@ def delete_user(session: Session, user_id: UserId) -> bool:
 def list_users(session: Session, limit: int = 200) -> Sequence[User]:
     """Every account, newest first (admin only)."""
     return session.scalars(select(User).order_by(User.created_at.desc()).limit(limit)).all()
+
+
+# --------------------------------------------------------------------------- #
+# OAuth login identities ("Continue with Google/Microsoft")
+# --------------------------------------------------------------------------- #
+
+def get_oauth_identity(session: Session, *, provider: str, provider_subject: str) -> OAuthIdentity | None:
+    """The linked account for a ``(provider, subject)`` pair, if this identity has signed in before."""
+    return session.scalar(
+        select(OAuthIdentity).where(
+            OAuthIdentity.provider == provider, OAuthIdentity.provider_subject == provider_subject
+        )
+    )
+
+
+def create_oauth_identity(
+    session: Session, *, user_id: UserId, provider: str, provider_subject: str, provider_email: str
+) -> OAuthIdentity:
+    """Link a provider identity to an existing user."""
+    identity = OAuthIdentity(
+        user_id=user_id,
+        provider=provider,
+        provider_subject=provider_subject,
+        provider_email=normalise_email(provider_email),
+    )
+    session.add(identity)
+    session.flush()
+    return identity
 
 
 # --------------------------------------------------------------------------- #
@@ -920,3 +964,556 @@ def list_consent_records(session: Session, user_id: UserId, limit: int = 100) ->
         .order_by(ConsentRecord.recorded_at.desc())
         .limit(limit)
     ).all()
+
+
+# --------------------------------------------------------------------------- #
+# Commitments: status changes for the tracker (mark done / snooze)
+# --------------------------------------------------------------------------- #
+
+def set_commitment_status(
+    session: Session, user_id: UserId, commitment_id: uuid.UUID, *, status: str
+) -> CommitmentRow | None:
+    """Mark one of this user's commitments done, dropped, or otherwise re-stated."""
+    row = get_commitment(session, user_id, commitment_id)
+    if row is None:
+        return None
+    row.status = status
+    session.flush()
+    return row
+
+
+def snooze_commitment(
+    session: Session, user_id: UserId, commitment_id: uuid.UUID, *, days: int = 1
+) -> CommitmentRow | None:
+    """Push a commitment's due date forward by ``days``, leaving its status alone."""
+    row = get_commitment(session, user_id, commitment_id)
+    if row is None:
+        return None
+    try:
+        base = date.fromisoformat(row.due_iso) if row.due_iso else utcnow().date()
+    except ValueError:
+        base = utcnow().date()
+    new_date = base + timedelta(days=days)
+    row.due_iso = new_date.isoformat()
+    row.due_text = f"snoozed to {new_date.isoformat()}"
+    session.flush()
+    return row
+
+
+def list_commitments_tracker(
+    session: Session, user_id: UserId, *, status: str | None = None, sort: str = "due_date", limit: int = 500
+) -> Sequence[CommitmentRow]:
+    """A flat, sortable list of this user's commitments for the tracker table.
+
+    Unlike :func:`list_commitments` (grouped by meeting for the dashboard), this
+    returns one row per commitment regardless of meeting, which is what a
+    Person / Commitment / Due Date / Status table needs.
+    """
+    statement = select(CommitmentRow).where(CommitmentRow.user_id == user_id)
+    if status == "open":
+        statement = statement.where(CommitmentRow.status.in_(["probable", "confirmed"]))
+    elif status:
+        statement = statement.where(CommitmentRow.status == status)
+    if sort == "due_date":
+        from sqlalchemy import case
+
+        no_date = case((CommitmentRow.due_iso == "", 1), else_=0)
+        statement = statement.order_by(no_date.asc(), CommitmentRow.due_iso.asc())
+    else:
+        statement = statement.order_by(CommitmentRow.updated_at.desc())
+    return session.scalars(statement.limit(limit)).all()
+
+
+# --------------------------------------------------------------------------- #
+# Integrations
+# --------------------------------------------------------------------------- #
+
+def list_integrations(session: Session, user_id: UserId) -> Sequence[Integration]:
+    """Every connector this user has touched, configured or not."""
+    return session.scalars(select(Integration).where(Integration.user_id == user_id)).all()
+
+
+def list_enabled_integrations(session: Session, user_id: UserId) -> Sequence[Integration]:
+    """This user's connectors that should receive a post-meeting briefing."""
+    return session.scalars(
+        select(Integration).where(Integration.user_id == user_id, Integration.is_enabled.is_(True))
+    ).all()
+
+
+def get_integration(session: Session, user_id: UserId, connector_type: str) -> Integration | None:
+    """One connector, owned by this user."""
+    return session.scalar(
+        select(Integration).where(Integration.user_id == user_id, Integration.connector_type == connector_type)
+    )
+
+
+def upsert_integration(session: Session, *, user_id: UserId, connector_type: str, **values: object) -> Integration:
+    """Create or update one user's connection to a connector type."""
+    row = get_integration(session, user_id, connector_type)
+    if row is None:
+        row = Integration(user_id=user_id, connector_type=connector_type)
+        session.add(row)
+    for key, value in values.items():
+        if hasattr(row, key):
+            setattr(row, key, value)
+    session.flush()
+    return row
+
+
+def delete_integration(session: Session, user_id: UserId, connector_type: str) -> bool:
+    """Revoke and remove one connector. True when a row was actually deleted."""
+    result = session.execute(
+        delete(Integration).where(Integration.user_id == user_id, Integration.connector_type == connector_type)
+    )
+    return result.rowcount > 0
+
+
+# --------------------------------------------------------------------------- #
+# Calendar accounts and synced events
+# --------------------------------------------------------------------------- #
+
+def list_calendar_accounts(session: Session, user_id: UserId) -> Sequence[CalendarAccount]:
+    """Every mailbox this user has connected for meeting auto-detection."""
+    return session.scalars(
+        select(CalendarAccount).where(CalendarAccount.user_id == user_id).order_by(CalendarAccount.created_at.asc())
+    ).all()
+
+
+def list_enabled_calendar_accounts(session: Session) -> Sequence[CalendarAccount]:
+    """Every connected, enabled account across every tenant - what the sync loop iterates."""
+    return session.scalars(
+        select(CalendarAccount).where(
+            CalendarAccount.is_enabled.is_(True), CalendarAccount.auth_token_encrypted.is_not(None)
+        )
+    ).all()
+
+
+def get_calendar_account(session: Session, user_id: UserId, account_id: uuid.UUID) -> CalendarAccount | None:
+    """One connected mailbox, owned by this user."""
+    return session.scalar(
+        select(CalendarAccount).where(CalendarAccount.id == account_id, CalendarAccount.user_id == user_id)
+    )
+
+
+def upsert_calendar_account(
+    session: Session, *, user_id: UserId, provider: str, email: str, **values: object
+) -> CalendarAccount:
+    """Create or refresh one connected mailbox, keyed by ``(user, provider, email)``."""
+    row = session.scalar(
+        select(CalendarAccount).where(
+            CalendarAccount.user_id == user_id,
+            CalendarAccount.provider == provider,
+            CalendarAccount.email == email,
+        )
+    )
+    if row is None:
+        row = CalendarAccount(user_id=user_id, provider=provider, email=email)
+        session.add(row)
+    for key, value in values.items():
+        if hasattr(row, key):
+            setattr(row, key, value)
+    session.flush()
+    return row
+
+
+def delete_calendar_account(session: Session, user_id: UserId, account_id: uuid.UUID) -> bool:
+    """Disconnect one mailbox. True when a row was actually deleted."""
+    result = session.execute(
+        delete(CalendarAccount).where(CalendarAccount.id == account_id, CalendarAccount.user_id == user_id)
+    )
+    return result.rowcount > 0
+
+
+def upsert_calendar_event(
+    session: Session, *, user_id: UserId, calendar_account_id: uuid.UUID, provider_event_id: str, **values: object
+) -> CalendarEvent:
+    """Write through one synced event from a provider's calendar listing."""
+    row = session.scalar(
+        select(CalendarEvent).where(
+            CalendarEvent.calendar_account_id == calendar_account_id,
+            CalendarEvent.provider_event_id == provider_event_id,
+        )
+    )
+    if row is None:
+        row = CalendarEvent(
+            user_id=user_id, calendar_account_id=calendar_account_id, provider_event_id=provider_event_id
+        )
+        session.add(row)
+    for key, value in values.items():
+        if hasattr(row, key):
+            setattr(row, key, value)
+    session.flush()
+    return row
+
+
+def list_upcoming_calendar_events(
+    session: Session, user_id: UserId, *, since: datetime | None = None, limit: int = 100
+) -> Sequence[CalendarEvent]:
+    """This user's synced events from ``since`` (default: now) onward, soonest first."""
+    cutoff = since or utcnow()
+    return session.scalars(
+        select(CalendarEvent)
+        .where(CalendarEvent.user_id == user_id, CalendarEvent.start_at >= cutoff)
+        .order_by(CalendarEvent.start_at.asc())
+        .limit(limit)
+    ).all()
+
+
+def get_calendar_event(session: Session, user_id: UserId, event_id: uuid.UUID) -> CalendarEvent | None:
+    """One synced event, owned by this user."""
+    return session.scalar(
+        select(CalendarEvent).where(CalendarEvent.id == event_id, CalendarEvent.user_id == user_id)
+    )
+
+
+def set_calendar_event_deleg8(
+    session: Session, user_id: UserId, event_id: uuid.UUID, *, requested: bool
+) -> CalendarEvent | None:
+    """Flip a synced event's "Deleg8 it" flag, from the console or a Telegram button."""
+    row = get_calendar_event(session, user_id, event_id)
+    if row is None:
+        return None
+    row.deleg8_requested = requested
+    session.flush()
+    return row
+
+
+def events_due_for_reminder(session: Session, *, window_start: datetime, window_end: datetime) -> Sequence[CalendarEvent]:
+    """Delegable events starting inside the reminder window that have not been reminded yet."""
+    return session.scalars(
+        select(CalendarEvent).where(
+            CalendarEvent.start_at >= window_start,
+            CalendarEvent.start_at <= window_end,
+            CalendarEvent.reminder_sent_at.is_(None),
+            CalendarEvent.join_url != "",
+        )
+    ).all()
+
+
+def events_due_for_dispatch(session: Session, *, now: datetime) -> Sequence[CalendarEvent]:
+    """Events flagged "Deleg8 it" whose start time has arrived and have not been dispatched yet."""
+    return session.scalars(
+        select(CalendarEvent).where(
+            CalendarEvent.deleg8_requested.is_(True),
+            CalendarEvent.dispatched_at.is_(None),
+            CalendarEvent.start_at <= now,
+            CalendarEvent.join_url != "",
+        )
+    ).all()
+
+
+def mark_calendar_event_reminded(session: Session, event_id: uuid.UUID) -> None:
+    """Record that the T-15 Telegram reminder was sent for one event."""
+    session.execute(
+        CalendarEvent.__table__.update().where(CalendarEvent.id == event_id).values(reminder_sent_at=utcnow())
+    )
+
+
+def mark_calendar_event_dispatched(session: Session, event_id: uuid.UUID, *, meeting_id: uuid.UUID | None = None) -> None:
+    """Record that a flagged event's dispatch was attempted.
+
+    ``meeting_id`` is ``None`` when the attempt failed (quota, concurrency
+    limit, no dispatcher available); the event is still marked handled so the
+    scheduler does not retry it on every tick for the rest of the day.
+    """
+    session.execute(
+        CalendarEvent.__table__.update()
+        .where(CalendarEvent.id == event_id)
+        .values(dispatched_at=utcnow(), meeting_id=meeting_id)
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Meeting health metrics
+# --------------------------------------------------------------------------- #
+
+def get_meeting_metrics(session: Session, meeting_id: uuid.UUID) -> MeetingMetrics | None:
+    """Cached scores for one meeting, if they have been computed."""
+    return session.scalar(select(MeetingMetrics).where(MeetingMetrics.meeting_id == meeting_id))
+
+
+def upsert_meeting_metrics(session: Session, *, user_id: UserId, meeting_id: uuid.UUID, **values: object) -> MeetingMetrics:
+    """Write through the computed scores for one meeting."""
+    row = get_meeting_metrics(session, meeting_id)
+    if row is None:
+        row = MeetingMetrics(user_id=user_id, meeting_id=meeting_id)
+        session.add(row)
+    for key, value in values.items():
+        if hasattr(row, key):
+            setattr(row, key, value)
+    row.computed_at = utcnow()
+    session.flush()
+    return row
+
+
+def list_meeting_metrics(
+    session: Session, user_id: UserId, *, since: datetime | None = None, limit: int = 500
+) -> Sequence[MeetingMetrics]:
+    """This user's cached meeting scores, newest meeting first."""
+    statement = select(MeetingMetrics).where(MeetingMetrics.user_id == user_id)
+    if since is not None:
+        statement = statement.where(MeetingMetrics.computed_at >= since)
+    return session.scalars(statement.order_by(MeetingMetrics.computed_at.desc()).limit(limit)).all()
+
+
+# --------------------------------------------------------------------------- #
+# Full-text search across meetings, decisions, topics and action items
+# --------------------------------------------------------------------------- #
+
+def search_reports(session: Session, user_id: UserId, query: str, *, limit: int = 20) -> Sequence[MeetingReport]:
+    """Archived briefs whose summary or payload (decisions, actions, topics) match ``query``.
+
+    Postgres runs a real ``tsvector`` match against an expression index
+    (:func:`src.db.base.ensure_search_indexes`); SQLite - development only -
+    falls back to a case-insensitive substring match over the same text.
+    """
+    if not query.strip():
+        return []
+    statement = select(MeetingReport).where(MeetingReport.user_id == user_id)
+    if is_postgres():
+        statement = statement.where(
+            text(
+                "to_tsvector('english', coalesce(executive_summary, '') || ' ' || coalesce(payload::text, '')) "
+                "@@ plainto_tsquery('english', :search_q)"
+            ).bindparams(search_q=query)
+        )
+    else:
+        pattern = f"%{query.lower()}%"
+        statement = statement.where(
+            or_(
+                func.lower(MeetingReport.executive_summary).like(pattern),
+                func.lower(cast(MeetingReport.payload, Text)).like(pattern),
+            )
+        )
+    return session.scalars(statement.order_by(MeetingReport.concluded_at.desc()).limit(limit)).all()
+
+
+def search_commitments(session: Session, user_id: UserId, query: str, *, limit: int = 20) -> Sequence[CommitmentRow]:
+    """Action items whose description, owner, or requester match ``query``."""
+    if not query.strip():
+        return []
+    statement = select(CommitmentRow).where(CommitmentRow.user_id == user_id)
+    if is_postgres():
+        statement = statement.where(
+            text(
+                "to_tsvector('english', coalesce(description, '') || ' ' || coalesce(owner, '')) "
+                "@@ plainto_tsquery('english', :search_q)"
+            ).bindparams(search_q=query)
+        )
+    else:
+        pattern = f"%{query.lower()}%"
+        statement = statement.where(
+            or_(func.lower(CommitmentRow.description).like(pattern), func.lower(CommitmentRow.owner).like(pattern))
+        )
+    return session.scalars(statement.order_by(CommitmentRow.updated_at.desc()).limit(limit)).all()
+
+
+# --------------------------------------------------------------------------- #
+# Organizations
+# --------------------------------------------------------------------------- #
+
+def create_organization(session: Session, *, name: str, created_by: UserId, seats_limit: int = 5) -> Organization:
+    """Insert a new organization. The caller becomes its membership separately."""
+    org = Organization(name=name.strip(), created_by=created_by, seats_limit=seats_limit, settings={})
+    session.add(org)
+    session.flush()
+    return org
+
+
+def get_organization(session: Session, org_id: uuid.UUID) -> Organization | None:
+    """One organization by id."""
+    return session.get(Organization, org_id)
+
+
+def delete_organization(session: Session, org_id: uuid.UUID) -> bool:
+    """Erase an organization and its memberships/invites (cascades); member accounts are untouched."""
+    org = session.get(Organization, org_id)
+    if org is None:
+        return False
+    session.delete(org)
+    return True
+
+
+def update_organization(session: Session, org: Organization, **values: object) -> Organization:
+    """Set plain attributes (``name``, ``seats_limit``) or merge the ``settings`` blob."""
+    settings_update = values.pop("settings", None)
+    if isinstance(settings_update, dict):
+        settings = dict(org.settings or {})
+        settings.update(settings_update)
+        org.settings = settings
+    for key, value in values.items():
+        setattr(org, key, value)
+    session.add(org)
+    return org
+
+
+def get_organization_member(session: Session, user_id: UserId) -> OrganizationMember | None:
+    """The membership row for a user, or ``None`` when they belong to no organization."""
+    return session.scalar(select(OrganizationMember).where(OrganizationMember.user_id == user_id))
+
+
+def org_settings_for_user(session: Session, user_id: UserId) -> dict | None:
+    """The organization settings blob a user's plan should resolve from, or ``None`` when solo."""
+    member = get_organization_member(session, user_id)
+    if member is None:
+        return None
+    org = get_organization(session, member.org_id)
+    return org.settings if org is not None else None
+
+
+def get_organization_member_by_ids(
+    session: Session, org_id: uuid.UUID, user_id: UserId
+) -> OrganizationMember | None:
+    """One organization's membership row for one user."""
+    return session.scalar(
+        select(OrganizationMember).where(
+            OrganizationMember.org_id == org_id, OrganizationMember.user_id == user_id
+        )
+    )
+
+
+def list_organization_members(session: Session, org_id: uuid.UUID) -> Sequence[OrganizationMember]:
+    """Every member of an organization, oldest first."""
+    return session.scalars(
+        select(OrganizationMember)
+        .where(OrganizationMember.org_id == org_id)
+        .order_by(OrganizationMember.created_at.asc())
+    ).all()
+
+
+def count_organization_members(session: Session, org_id: uuid.UUID) -> int:
+    """How many seats an organization is currently using."""
+    return int(
+        session.scalar(
+            select(func.count()).select_from(OrganizationMember).where(OrganizationMember.org_id == org_id)
+        )
+        or 0
+    )
+
+
+def create_organization_member(
+    session: Session, *, org_id: uuid.UUID, user_id: UserId, role: str
+) -> OrganizationMember:
+    """Insert a membership row."""
+    member = OrganizationMember(org_id=org_id, user_id=user_id, role=role)
+    session.add(member)
+    session.flush()
+    return member
+
+
+def set_member_role(session: Session, org_id: uuid.UUID, user_id: UserId, *, role: str) -> OrganizationMember | None:
+    """Change a member's role. Returns ``None`` if they are not a member."""
+    member = get_organization_member_by_ids(session, org_id, user_id)
+    if member is None:
+        return None
+    member.role = role
+    session.add(member)
+    return member
+
+
+def delete_organization_member(session: Session, org_id: uuid.UUID, user_id: UserId) -> bool:
+    """Remove one membership row. The member's own account and data are untouched."""
+    member = get_organization_member_by_ids(session, org_id, user_id)
+    if member is None:
+        return False
+    session.delete(member)
+    return True
+
+
+def create_invite(
+    session: Session,
+    *,
+    org_id: uuid.UUID,
+    email: str,
+    role: str,
+    token_hash: str,
+    invited_by: UserId,
+    ttl: timedelta,
+) -> OrganizationInvite:
+    """Record a pending invitation."""
+    invite = OrganizationInvite(
+        org_id=org_id,
+        email=normalise_email(email),
+        role=role,
+        token_hash=token_hash,
+        invited_by=invited_by,
+        expires_at=datetime.now(timezone.utc) + ttl,
+    )
+    session.add(invite)
+    session.flush()
+    return invite
+
+
+def get_invite(session: Session, invite_id: uuid.UUID) -> OrganizationInvite | None:
+    """One invite by id, regardless of whether it is still pending."""
+    return session.get(OrganizationInvite, invite_id)
+
+
+def get_invite_by_token_hash(session: Session, token_hash: str) -> OrganizationInvite | None:
+    """A redeemable invite, or ``None`` when unknown, revoked, expired, or already accepted."""
+    invite = session.scalar(select(OrganizationInvite).where(OrganizationInvite.token_hash == token_hash))
+    if invite is None or not invite.is_pending:
+        return None
+    return invite
+
+
+def list_pending_invites(session: Session, org_id: uuid.UUID) -> Sequence[OrganizationInvite]:
+    """Every invite for an organization that has not been accepted or revoked, expired or not."""
+    return session.scalars(
+        select(OrganizationInvite)
+        .where(
+            OrganizationInvite.org_id == org_id,
+            OrganizationInvite.accepted_at.is_(None),
+            OrganizationInvite.revoked_at.is_(None),
+        )
+        .order_by(OrganizationInvite.created_at.desc())
+    ).all()
+
+
+def revoke_invite(session: Session, invite_id: uuid.UUID) -> bool:
+    """Revoke one pending invite."""
+    invite = session.get(OrganizationInvite, invite_id)
+    if invite is None or not invite.is_pending:
+        return False
+    invite.revoked_at = utcnow()
+    session.add(invite)
+    return True
+
+
+def mark_invite_accepted(session: Session, invite: OrganizationInvite) -> OrganizationInvite:
+    """Mark an invite redeemed, so the same link cannot be used twice."""
+    invite.accepted_at = utcnow()
+    session.add(invite)
+    return invite
+
+
+def org_usage_totals(
+    session: Session, member_user_ids: Sequence[UserId], *, since: datetime
+) -> dict[uuid.UUID, dict[str, dict[str, float]]]:
+    """Per-member, per-service usage totals since ``since`` - the admin member-list rollup.
+
+    Mirrors :func:`usage_totals`'s shape but grouped by member too, since this
+    is a cross-member report rather than a single quota check.
+    """
+    if not member_user_ids:
+        return {}
+    statement = (
+        select(
+            UsageEvent.user_id,
+            UsageEvent.service,
+            func.coalesce(func.sum(UsageEvent.units), 0.0),
+            func.coalesce(func.sum(UsageEvent.cost_usd), 0.0),
+            func.count(),
+        )
+        .where(
+            UsageEvent.user_id.in_(member_user_ids),
+            UsageEvent.created_at >= since,
+            UsageEvent.own_key.is_(False),
+        )
+        .group_by(UsageEvent.user_id, UsageEvent.service)
+    )
+    totals: dict[uuid.UUID, dict[str, dict[str, float]]] = {}
+    for user_id, service, units, cost, calls in session.execute(statement):
+        per_user = totals.setdefault(user_id, {})
+        per_user[str(service)] = {"units": float(units), "cost_usd": float(cost), "calls": float(calls)}
+    return totals

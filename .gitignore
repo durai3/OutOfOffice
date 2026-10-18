@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .env
 .pytest_cache/
+# start.sh server logs
+.backend.log
+.frontend.log
 # Local vector store (rebuild with: python -m src.knowledge.ingest)
 data/chroma_db/
 # Chromium profile (holds the bot's Google session) and diagnostics

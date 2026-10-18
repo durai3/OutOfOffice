@@ -98,7 +98,8 @@ def summary(context: CurrentContext) -> UsageSummary:
     """This month's totals against the plan."""
     resolved = resolve(context.session, context.user_id)
     own_keys = not (resolved.uses_platform_llm or resolved.uses_platform_voice)
-    status = quota_status(context.session, context.user_id, own_keys=own_keys)
+    org_settings = context.org.settings if context.org is not None else None
+    status = quota_status(context.session, context.user_id, own_keys=own_keys, org_settings=org_settings)
     used = {
         "llm_tokens": status.llm_tokens,
         "stt_seconds": status.stt_seconds,

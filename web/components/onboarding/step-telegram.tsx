@@ -49,7 +49,7 @@ export function TelegramStep({ link, onDone }: { link: TelegramLink; onDone: () 
 
   if (current.linked) {
     return (
-      <p className="flex items-center gap-2 text-sm text-success">
+      <p className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm font-medium text-success">
         <Check className="size-4" aria-hidden="true" /> Connected. Approvals and briefings arrive in Telegram.
       </p>
     );
@@ -62,7 +62,7 @@ export function TelegramStep({ link, onDone }: { link: TelegramLink; onDone: () 
       <p className="text-muted-foreground">{current.instructions}</p>
       {current.code ? (
         <div className="flex items-center gap-2">
-          <code className="flex-1 rounded-md border border-border bg-muted px-3 py-2 font-mono text-sm">{command}</code>
+          <code className="flex-1 rounded-lg border border-border bg-muted px-3 py-2 font-mono text-sm">{command}</code>
           <Button
             size="sm"
             variant="outline"
@@ -76,7 +76,7 @@ export function TelegramStep({ link, onDone }: { link: TelegramLink; onDone: () 
           </Button>
         </div>
       ) : null}
-      <p className="text-xs text-muted-foreground">
+      <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
         Without a channel, anything your policy marks as needing approval gets a safe holding reply instead of
         reaching you. Nothing is ever sent to a chat you have not linked.
       </p>

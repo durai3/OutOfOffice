@@ -28,9 +28,13 @@ const ANONYMOUS_ROUTES = ["/login", "/signup", "/legal"];
  * The legal documents belong here and the sign-in pages do not. A signed-in
  * user being bounced off `/legal/privacy` back to the dashboard means they
  * cannot read the policy they agreed to - which is exactly the document they
- * are most entitled to re-read at any time.
+ * are most entitled to re-read at any time. An invite link is here for the
+ * same reason, but from the other direction: whoever opens it might already
+ * have an account (they should accept in place) or might not (they should
+ * sign up) - either is a valid thing to do on the same URL, so neither state
+ * gets redirected away from it.
  */
-const ALWAYS_ROUTES = ["/legal"];
+const ALWAYS_ROUTES = ["/legal", "/invite"];
 
 function matches(routes: string[], pathname: string): boolean {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));

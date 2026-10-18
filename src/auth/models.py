@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from src.auth.security import MIN_PASSWORD_LENGTH, password_problems
+from src.orgs.models import OrganizationSummary
 
 
 class SignupRequest(BaseModel):
@@ -23,6 +24,9 @@ class SignupRequest(BaseModel):
     )
     policy_template: str = Field(
         default="balanced", description="Which starter Representation Policy to install."
+    )
+    invite_token: str | None = Field(
+        default=None, description="Join an organization via its invite link, instead of signing up solo."
     )
 
     @field_validator("password")
@@ -95,6 +99,7 @@ class AccountResponse(BaseModel):
         default_factory=list, description="Required documents not accepted at their current version."
     )
     settings: dict = Field(default_factory=dict)
+    organization: OrganizationSummary | None = None
 
 
 class TokenResponse(BaseModel):

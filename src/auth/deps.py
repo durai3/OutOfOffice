@@ -29,7 +29,7 @@ from src.auth.security import AuthError, decode_access_token, hash_token
 from src.compliance import legal
 from src.db import repo
 from src.db.base import db_session, session_scope
-from src.db.models import Meeting, Principal, User
+from src.db.models import Meeting, Organization, OrganizationRole, Principal, User
 
 logger = logging.getLogger("deleg8.auth.deps")
 
@@ -49,6 +49,9 @@ class TenantContext:
     session: Session
     workspace: Any
     """The caller's :class:`~src.tenancy.workspace.Workspace`."""
+    org: Organization | None = None
+    org_role: str | None = None
+    """The caller's role within :attr:`org` (owner/admin/member); ``None`` when solo."""
 
     @property
     def user_id(self) -> uuid.UUID:
@@ -67,8 +70,13 @@ class TenantContext:
 
     @property
     def is_admin(self) -> bool:
-        """True for platform administrators."""
+        """True for platform administrators. Distinct from :attr:`is_org_admin` - never conflate the two."""
         return self.user.role == "admin"
+
+    @property
+    def is_org_admin(self) -> bool:
+        """True for an owner or admin of :attr:`org` (not the platform role)."""
+        return self.org_role in (OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value)
 
 
 def bearer_token(
@@ -117,6 +125,14 @@ def _load_user(session: Session, token: str) -> User:
     return user
 
 
+def _load_org(session: Session, user_id: uuid.UUID) -> tuple[Organization | None, str | None]:
+    """The caller's organization and their role in it, or ``(None, None)`` when solo."""
+    member = repo.get_organization_member(session, user_id)
+    if member is None:
+        return None, None
+    return repo.get_organization(session, member.org_id), member.role
+
+
 def get_context(
     request: Request,
     token: Annotated[str, Depends(bearer_token)],
@@ -127,7 +143,10 @@ def get_context(
     principal = repo.primary_principal(session, user.id)
     workspaces = getattr(request.app.state, "workspaces", None)
     workspace = workspaces.get(user.id) if workspaces is not None else None
-    return TenantContext(user=user, principal=principal, session=session, workspace=workspace)
+    org, org_role = _load_org(session, user.id)
+    return TenantContext(
+        user=user, principal=principal, session=session, workspace=workspace, org=org, org_role=org_role
+    )
 
 
 async def get_context_async(
@@ -144,7 +163,10 @@ async def get_context_async(
     principal = repo.primary_principal(session, user.id)
     workspaces = request.app.state.workspaces
     workspace = await workspaces.open(user.id)
-    return TenantContext(user=user, principal=principal, session=session, workspace=workspace)
+    org, org_role = _load_org(session, user.id)
+    return TenantContext(
+        user=user, principal=principal, session=session, workspace=workspace, org=org, org_role=org_role
+    )
 
 
 def require_onboarded(
@@ -164,6 +186,19 @@ def require_admin(context: Annotated[TenantContext, Depends(get_context)]) -> Te
     """Reject requests from non-administrators."""
     if not context.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "administrator access required")
+    return context
+
+
+def require_org_admin(context: Annotated[TenantContext, Depends(get_context)]) -> TenantContext:
+    """Reject requests from anyone not an owner or admin of their organization.
+
+    Distinct from :func:`require_admin`, which gates the platform console -
+    these protect different things and must never be conflated.
+    """
+    if context.org is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "you are not a member of an organization")
+    if not context.is_org_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "organization owner or admin access required")
     return context
 
 
@@ -223,4 +258,5 @@ CurrentContext = Annotated[TenantContext, Depends(get_context)]
 ActiveContext = Annotated[TenantContext, Depends(get_context_async)]
 OnboardedContext = Annotated[TenantContext, Depends(require_onboarded)]
 AdminContext = Annotated[TenantContext, Depends(require_admin)]
+OrgAdminContext = Annotated[TenantContext, Depends(require_org_admin)]
 WorkerContext = Annotated[JobContext, Depends(get_job_context)]

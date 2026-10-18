@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, ChevronDown, Clock, FileText, Gavel, HelpCircle, ListChecks, RefreshCw, Search, Send, Users } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
-import type { MeetingBrief, MeetingListResponse, PostMeetingReport } from "@/lib/types";
+import type { MeetingBrief, MeetingListResponse, PostMeetingReport, SearchResponse } from "@/lib/types";
 import { cn, formatDateTime, formatMinutes, formatTime, humanTopic } from "@/lib/utils";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/components/toast";
@@ -24,6 +25,8 @@ export function HistoryView() {
   const briefs = useApi<MeetingBrief[]>(() => api.history(), { refreshMs: 30_000 });
   const live = useApi<MeetingListResponse>(api.meetings, { refreshMs: 10_000 });
   const [filter, setFilter] = React.useState("");
+  const trimmed = filter.trim();
+  const globalSearch = useApi<SearchResponse>(() => api.search(trimmed), { enabled: trimmed.length >= 2, key: trimmed });
 
   const list = React.useMemo(() => {
     const items = briefs.data ?? [];
@@ -62,6 +65,34 @@ export function HistoryView() {
               <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search briefs" className="pl-8" aria-label="Search briefs" />
             </div>
           </CardHeader>
+          {trimmed.length >= 2 && globalSearch.data && globalSearch.data.results.length > 0 ? (
+            <div className="scroll-thin max-h-56 overflow-y-auto border-b border-border bg-muted/30">
+              <p className="px-4 pt-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
+                Also in decisions &amp; action items
+              </p>
+              <ul className="divide-y divide-border">
+                {globalSearch.data.results.map((result) => (
+                  <li key={`${result.type}-${result.id}`}>
+                    {result.type === "meeting" ? (
+                      <button type="button" onClick={() => select(result.id)} className="w-full px-4 py-2 text-left hover:bg-accent/60">
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                          <Gavel className="size-3 text-muted-foreground" /> {result.title}
+                        </div>
+                        <p className="line-clamp-1 text-[11px] text-muted-foreground">{result.excerpt}</p>
+                      </button>
+                    ) : (
+                      <Link href="/commitments" className="block px-4 py-2 text-left hover:bg-accent/60">
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                          <ListChecks className="size-3 text-muted-foreground" /> Action item
+                        </div>
+                        <p className="line-clamp-1 text-[11px] text-muted-foreground">{result.excerpt}</p>
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <CardContent className="p-0">
             {!briefs.data ? (
               <div className="flex flex-col gap-2 p-4">
@@ -82,15 +113,15 @@ export function HistoryView() {
                       className={cn("w-full px-4 py-3 text-left transition-colors hover:bg-accent/60", brief.brief_id === selected && "bg-accent")}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate font-mono text-xs font-medium">{brief.meeting_id}</span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">{formatDateTime(brief.concluded_at)}</span>
+                        <span className="truncate font-mono text-xs font-semibold">{brief.meeting_id}</span>
+                        <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">{formatDateTime(brief.concluded_at)}</span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{brief.executive_summary}</p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-1"><Users className="size-3" /> {brief.participants.length}</span>
-                        <span className="inline-flex items-center gap-1"><ListChecks className="size-3" /> {brief.action_items.length}</span>
-                        <span className="inline-flex items-center gap-1"><Gavel className="size-3" /> {brief.decisions_made.length}</span>
-                        <span className="inline-flex items-center gap-1"><Clock className="size-3" /> {formatMinutes(brief.duration_minutes)}</span>
+                        <span className="tabular inline-flex items-center gap-1"><Users className="size-3" /> {brief.participants.length}</span>
+                        <span className="tabular inline-flex items-center gap-1"><ListChecks className="size-3" /> {brief.action_items.length}</span>
+                        <span className="tabular inline-flex items-center gap-1"><Gavel className="size-3" /> {brief.decisions_made.length}</span>
+                        <span className="tabular inline-flex items-center gap-1"><Clock className="size-3" /> {formatMinutes(brief.duration_minutes)}</span>
                       </div>
                     </button>
                   </li>
@@ -112,14 +143,21 @@ function LiveMeetings({ ids, onConcluded }: { ids: string[]; onConcluded: () => 
   const toast = useToast();
   const [busy, setBusy] = React.useState<string | null>(null);
   return (
-    <Card className="mb-4 border-info/30">
+    <Card className="mb-4 border-info/30 bg-info/[0.03]">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Meetings with live memory</CardTitle>
+        <CardDescription className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-info">
+          <span className="relative flex size-2 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-info pulse-dot" />
+            <span className="relative size-2 rounded-full bg-info" />
+          </span>
+          Live memory
+        </CardDescription>
+        <CardTitle className="text-sm">Meetings still open</CardTitle>
         <CardDescription>Still open in the API process. Conclude one to generate its briefing and archive it here.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
         {ids.map((id) => (
-          <div key={id} className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs">
+          <div key={id} className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs">
             <span className="font-mono">{id}</span>
             <Button
               size="sm"
@@ -198,10 +236,10 @@ function BriefDetail({ briefId }: { briefId: string }) {
             {others.length ? others.map((p) => <Badge key={p} variant="secondary">{p}</Badge>) : <span className="text-muted-foreground">no participants recorded</span>}
           </div>
           <div>
-            <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Executive summary</h3>
+            <h3 className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Executive summary</h3>
             <p className="text-sm leading-relaxed">{briefing.executive_summary}</p>
           </div>
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <dl className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
             <Metric label="Utterances" value={snap.stats.utterances} />
             <Metric label="Answered" value={snap.stats.auto_replies} />
             <Metric label="Escalated" value={snap.stats.escalations} />
@@ -219,9 +257,11 @@ function BriefDetail({ briefId }: { briefId: string }) {
           </CardHeader>
           <CardContent>
             {briefing.decisions_made.length === 0 ? <p className="text-xs text-muted-foreground">None recorded.</p> : (
-              <ul className="flex flex-col gap-2 text-sm">
+              <ul className="flex flex-col text-sm">
                 {briefing.decisions_made.map((d, i) => (
-                  <li key={i} className="flex gap-2"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" /> <span className="leading-relaxed">{d}</span></li>
+                  <li key={i} className="flex gap-2 border-t border-border py-2 first:border-t-0 first:pt-0">
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" /> <span className="leading-relaxed">{d}</span>
+                  </li>
                 ))}
               </ul>
             )}
@@ -233,9 +273,11 @@ function BriefDetail({ briefId }: { briefId: string }) {
           </CardHeader>
           <CardContent>
             {briefing.unresolved_questions.length === 0 ? <p className="text-xs text-muted-foreground">Nothing is waiting on you.</p> : (
-              <ul className="flex flex-col gap-2 text-sm">
+              <ul className="flex flex-col text-sm">
                 {briefing.unresolved_questions.map((q, i) => (
-                  <li key={i} className="leading-relaxed">{q}</li>
+                  <li key={i} className="flex gap-2 border-t border-border py-2 leading-relaxed first:border-t-0 first:pt-0">
+                    <HelpCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" /> <span>{q}</span>
+                  </li>
                 ))}
               </ul>
             )}
@@ -251,7 +293,7 @@ function BriefDetail({ briefId }: { briefId: string }) {
           {briefing.action_items.length === 0 ? <p className="text-xs text-muted-foreground">None recorded.</p> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                <thead className="text-left font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="pb-2 pr-3 font-medium">Action</th>
                     <th className="pb-2 pr-3 font-medium">Owner</th>
@@ -309,9 +351,9 @@ function BriefDetail({ briefId }: { briefId: string }) {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</dt>
-      <dd className="tabular text-base font-semibold">{value}</dd>
+    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+      <dt className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+      <dd className="tabular text-2xl font-semibold leading-none tracking-tight">{value}</dd>
     </div>
   );
 }

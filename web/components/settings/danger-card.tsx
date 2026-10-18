@@ -34,24 +34,31 @@ export function DangerCard() {
   return (
     <Card className="border-danger/40">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-danger">
-          <AlertTriangle className="size-4" aria-hidden="true" /> Delete this account
-        </CardTitle>
-        <CardDescription>
-          Removes your policy, dossier, documents, vector index, meeting briefs, commitments, consent records and
-          stored keys. It cannot be undone.
-        </CardDescription>
+        <div className="flex items-start gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-full bg-danger text-white">
+            <AlertTriangle className="size-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <CardTitle className="text-danger">Delete this account</CardTitle>
+            <CardDescription>
+              Removes your policy, dossier, documents, vector index, meeting briefs, commitments, consent records and
+              stored keys. It cannot be undone.
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Input
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          placeholder={`Type ${account?.email ?? "your email"} to confirm`}
-          className="sm:max-w-sm"
-        />
-        <Button variant="destructive" disabled={!armed} loading={busy} onClick={remove}>
-          Delete everything
-        </Button>
+      <CardContent>
+        <div className="flex flex-col gap-2.5 rounded-lg border border-danger/30 bg-danger/5 p-3.5 sm:flex-row sm:items-center">
+          <Input
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder={`Type ${account?.email ?? "your email"} to confirm`}
+            className="sm:max-w-sm"
+          />
+          <Button variant="destructive" disabled={!armed} loading={busy} onClick={remove}>
+            Delete everything
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

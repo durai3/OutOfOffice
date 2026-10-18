@@ -38,6 +38,14 @@ CARTESIA_SAMPLE_RATES: tuple[int, ...] = (24000, 48000, 44100, 22050, 16000, 800
 MIC_SAMPLE_RATES: tuple[int, ...] = (16000, 48000, 44100, 32000, 24000)
 """Mic rates to try, in order of preference. Deepgram accepts any of them."""
 
+SILENCE_PEAK: int = 200
+"""16-bit peak below which a frame counts as silence rather than sound.
+
+A virtual cable with nothing playing into it measures in the tens; speech, even
+distant and quiet, peaks in the thousands. The gap is wide enough that this
+only has to be in the right order of magnitude.
+"""
+
 
 @dataclass(frozen=True)
 class AudioDevice:
@@ -107,6 +115,8 @@ class AudioIO:
 
         self.mic_sample_rate: int = settings.mic_sample_rate
         self.speaker_sample_rate: int = settings.speaker_sample_rate
+        self.input_device_name: str = ""
+        self.output_device_name: str = ""
         self._speaker_channels: int = 1
         self._mic_frame_bytes: int = 0
         self._speaker_frame_bytes: int = 0
@@ -120,6 +130,11 @@ class AudioIO:
         self.frames_dropped = 0
         self.bytes_played = 0
         self.last_playback_started_at: float | None = None
+
+        self.frames_captured = 0
+        self._peak_since_read = 0
+        self._last_sound_at: float | None = None
+        self._listening_since: float | None = None
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -161,7 +176,7 @@ class AudioIO:
         self._pa = pa
         settings = self._settings
 
-        in_index = settings.input_device_index
+        in_index = self._resolve_device(pa, settings.input_device_name, settings.input_device_index, want_input=True)
         if in_index is None:
             in_index = int(pa.get_default_input_device_info()["index"])
         in_info = pa.get_device_info_by_index(in_index)
@@ -180,7 +195,7 @@ class AudioIO:
             start=False,
         )
 
-        out_index = settings.output_device_index
+        out_index = self._resolve_device(pa, settings.output_device_name, settings.output_device_index, want_input=False)
         if out_index is None:
             out_index = int(pa.get_default_output_device_info()["index"])
         out_info = pa.get_device_info_by_index(out_index)
@@ -198,7 +213,70 @@ class AudioIO:
             output_device_index=out_index,
             frames_per_buffer=speaker_frames,
         )
+        self.input_device_name = str(in_info["name"]).strip()
+        self.output_device_name = str(out_info["name"]).strip()
+        if in_index == out_index:
+            # PortAudio cannot hold one Core Audio device open as a separate
+            # input stream and output stream. The output succeeds, the input
+            # reports AUHAL error -50 on stderr and then delivers zero frames
+            # for the rest of the call - the delegate is completely deaf, with
+            # nothing in the logs to say why. src.audio.cable_check keeps the
+            # two ends apart; this is the backstop for a hand-written config.
+            logger.error(
+                "input and output are the same device ([%d] %s). PortAudio cannot open one device twice: "
+                "the microphone will deliver no audio at all and the delegate will hear nothing. Point "
+                "DELEG8_OUTPUT_DEVICE_NAME at a second virtual cable, or run "
+                "`python -m src.audio.cable_check` to pick one.",
+                in_index, self.input_device_name,
+            )
         logger.info("mic: [%d] %s | speaker: [%d] %s", in_index, in_info["name"], out_index, out_info["name"])
+
+    @staticmethod
+    def _resolve_device(
+        pa: pyaudio.PyAudio, name: str | None, index: int | None, *, want_input: bool
+    ) -> int | None:
+        """The index of the device to open, by name when one is configured.
+
+        A name is resolved against the live device list on every start, which
+        is the only way to stay pinned to the right device: PortAudio numbers
+        devices by enumeration order, so an index saved in ``.env`` moves to a
+        different device as soon as one appears or disappears. An index is used
+        only when it still points at a device that has the channels this
+        direction needs; otherwise it has drifted and the default is better
+        than opening the wrong hardware.
+        """
+        channel_key = "maxInputChannels" if want_input else "maxOutputChannels"
+        devices: list[tuple[int, str, int]] = []
+        for candidate in range(pa.get_device_count()):
+            try:
+                info = pa.get_device_info_by_index(candidate)
+            except OSError:
+                continue
+            devices.append((candidate, str(info["name"]).strip(), int(info[channel_key])))
+
+        if name:
+            wanted = name.strip()
+            for candidate, device_name, channels in devices:
+                if device_name == wanted and channels > 0:
+                    return candidate
+            for candidate, device_name, channels in devices:
+                if wanted.lower() in device_name.lower() and channels > 0:
+                    return candidate
+            logger.warning("no %s device named %r; falling back", "input" if want_input else "output", name)
+        if index is not None:
+            for candidate, device_name, channels in devices:
+                if candidate == index:
+                    if channels > 0:
+                        return candidate
+                    logger.warning(
+                        "%s device index %d is %r, which has no %s channels; device indexes drift when the "
+                        "device list changes, so falling back to the system default",
+                        "input" if want_input else "output", index, device_name,
+                        "input" if want_input else "output",
+                    )
+                    return None
+            logger.warning("no audio device with index %d is present; falling back", index)
+        return None
 
     @staticmethod
     def _pick_rate(
@@ -247,6 +325,7 @@ class AudioIO:
 
     def _enqueue_mic(self, frame: bytes) -> None:
         """Event-loop thread. Drop the oldest frame on overflow so latency never grows."""
+        self._measure(frame)
         if self.mic_queue.full():
             try:
                 self.mic_queue.get_nowait()
@@ -254,6 +333,56 @@ class AudioIO:
             except asyncio.QueueEmpty:
                 pass
         self.mic_queue.put_nowait(frame)
+
+    def _measure(self, frame: bytes) -> None:
+        """Track the input peak, so an input that hears nothing can be reported.
+
+        A dead virtual cable is indistinguishable from a quiet room as far as
+        Deepgram is concerned: both produce no transcript. The difference is
+        visible only in the signal level, which is why it is measured here and
+        surfaced by :class:`~src.orchestrator.VoiceOrchestrator`. ``max``/``min``
+        on an :mod:`array` run at C speed, so this costs nothing at 50 frames
+        a second.
+        """
+        self.frames_captured += 1
+        if self._listening_since is None:
+            self._listening_since = time.monotonic()
+        if self._muted:
+            return
+        samples = array("h")
+        samples.frombytes(frame)
+        if not samples:
+            return
+        peak = max(abs(max(samples)), abs(min(samples)))
+        if peak > self._peak_since_read:
+            self._peak_since_read = peak
+        if peak >= SILENCE_PEAK:
+            self._last_sound_at = time.monotonic()
+
+    def read_input_level(self) -> tuple[int, float | None]:
+        """The peak seen since the last call, and seconds since the input last had sound.
+
+        Resets the peak, so callers poll it on a fixed cadence to get a level
+        meter. The second value is ``None`` while the input has never carried
+        sound at all - the signature of a cable that is not connected to
+        anything rather than a room that has gone quiet.
+        """
+        peak, self._peak_since_read = self._peak_since_read, 0
+        if self._last_sound_at is None:
+            return peak, None
+        return peak, time.monotonic() - self._last_sound_at
+
+    @property
+    def listening_seconds(self) -> float:
+        """How long mic frames have been arriving."""
+        if self._listening_since is None:
+            return 0.0
+        return time.monotonic() - self._listening_since
+
+    @property
+    def heard_anything(self) -> bool:
+        """True once any sound above the noise floor has reached the input."""
+        return self._last_sound_at is not None
 
     def set_muted(self, muted: bool) -> None:
         """Replace mic audio with silence (keeps the STT socket alive) when ``muted``."""

@@ -12,10 +12,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, Circle, Loader2 } from "lucide-react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -76,20 +77,29 @@ export function OnboardingWizard() {
   }
 
   const remaining = state.steps.filter((s) => !s.complete && !s.optional);
-  const done = state.steps.filter((s) => s.complete).length;
+  const done = state.steps.length ? state.steps.filter((s) => s.complete).length : 0;
+  const progress = state.steps.length ? Math.round((done / state.steps.length) * 100) : 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
-      <h1 className="text-xl font-semibold tracking-tight">Set up your delegate</h1>
+      <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Onboarding</p>
+      <h1 className="mt-1.5 text-xl font-semibold tracking-tight">Set up your delegate</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Four things, and the last two take a minute each. {done} of {state.steps.length} done.
       </p>
 
+      <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+        <div
+          className="h-full rounded-full bg-primary transition-[width] duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
       <div className="mt-6 space-y-3">
-        {state.steps.map((step) => {
+        {state.steps.map((step, index) => {
           const open = active === step.key;
           return (
-            <Card key={step.key} className={cn(open && "ring-1 ring-ring")}>
+            <Card key={step.key} className={cn("overflow-hidden transition-shadow", open && "ring-1 ring-ring")}>
               <button
                 type="button"
                 onClick={() => setActive(open ? null : step.key)}
@@ -99,20 +109,22 @@ export function OnboardingWizard() {
                 <CardHeader className="flex-row items-start gap-3">
                   <span
                     className={cn(
-                      "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border",
-                      step.complete ? "border-success bg-success text-white" : "border-border text-muted-foreground",
+                      "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border text-xs font-semibold tabular-nums",
+                      step.complete
+                        ? "border-success bg-success text-white"
+                        : "border-border text-muted-foreground",
                     )}
                     aria-hidden="true"
                   >
-                    {step.complete ? <Check className="size-3" /> : <Circle className="size-2 fill-current" />}
+                    {step.complete ? <Check className="size-3.5" /> : index + 1}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <CardTitle className="flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2 text-sm">
                       {step.title}
                       {step.optional ? (
-                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+                        <Badge variant="outline" className="font-normal">
                           optional
-                        </span>
+                        </Badge>
                       ) : null}
                     </CardTitle>
                     <CardDescription className="mt-0.5">{step.description}</CardDescription>
@@ -141,7 +153,7 @@ export function OnboardingWizard() {
             ? `Still needed: ${remaining.map((s) => s.title.toLowerCase()).join(", ")}.`
             : "Everything required is done."}
         </p>
-        <Button onClick={finish} disabled={remaining.length > 0} loading={busy}>
+        <Button size="lg" onClick={finish} disabled={remaining.length > 0} loading={busy}>
           {busy ? <Loader2 className="size-4 animate-spin" /> : null}
           Go to the console <ArrowRight className="size-4" />
         </Button>

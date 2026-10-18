@@ -90,6 +90,23 @@ class VoiceSettings:
     """Audio frame size for both directions. Also the barge-in reaction granularity."""
     input_device_index: int | None = None
     output_device_index: int | None = None
+    input_device_name: str | None = None
+    """Device name for the bot's ears, preferred over the index. PortAudio
+    renumbers devices whenever one appears or disappears (a Continuity-Camera
+    iPhone microphone is enough), so an index written to ``.env`` can silently
+    come to mean a different device - or one with no output channels at all -
+    on the next run. A name does not drift."""
+    output_device_name: str | None = None
+    """Device name for the bot's mouth, preferred over the index; see above."""
+    verify_cables: bool = True
+    """Measure each virtual cable before the call by playing a tone into it and
+    recording it back (:mod:`src.audio.cable_check`). A cable whose driver is
+    installed but not loaded enumerates and opens normally while returning
+    silence forever, which otherwise shows up only as a meeting in which the
+    delegate never hears a single word."""
+    auto_route: bool = True
+    """Point the system default output/input at the chosen cables, since that is
+    what Chromium plays into and records from."""
     endpointing_ms: int = 300
     """Deepgram: silence after speech that finalises an utterance."""
     utterance_end_ms: int = 1000
@@ -108,6 +125,26 @@ class VoiceSettings:
     def is_configured() -> bool:
         """True when both platform provider keys are present in the environment."""
         return bool(os.getenv("DEEPGRAM_API_KEY", "").strip()) and bool(os.getenv("CARTESIA_API_KEY", "").strip())
+
+    @classmethod
+    def route_from_env(cls) -> VoiceSettings:
+        """Only the audio-routing knobs, with placeholder provider keys.
+
+        :mod:`src.audio.cable_check` needs the device configuration and nothing
+        else, and must be runnable to diagnose a dead cable *before* the
+        Deepgram and Cartesia keys are in place - a silent microphone is
+        exactly the kind of problem someone hits while still setting up.
+        """
+        return cls(
+            deepgram_api_key="unset",
+            cartesia_api_key="unset",
+            input_device_index=_env_optional_int("DELEG8_INPUT_DEVICE_INDEX"),
+            output_device_index=_env_optional_int("DELEG8_OUTPUT_DEVICE_INDEX"),
+            input_device_name=os.getenv("DELEG8_INPUT_DEVICE_NAME", "").strip() or None,
+            output_device_name=os.getenv("DELEG8_OUTPUT_DEVICE_NAME", "").strip() or None,
+            verify_cables=_env_bool("DELEG8_AUDIO_PREFLIGHT", True),
+            auto_route=_env_bool("DELEG8_AUDIO_AUTOROUTE", True),
+        )
 
     @classmethod
     def from_env(cls, *, deepgram_key: str | None = None, cartesia_key: str | None = None) -> VoiceSettings:
@@ -137,6 +174,10 @@ class VoiceSettings:
             cartesia_voice_id=os.getenv("CARTESIA_VOICE_ID", "").strip() or None,
             input_device_index=_env_optional_int("DELEG8_INPUT_DEVICE_INDEX"),
             output_device_index=_env_optional_int("DELEG8_OUTPUT_DEVICE_INDEX"),
+            input_device_name=os.getenv("DELEG8_INPUT_DEVICE_NAME", "").strip() or None,
+            output_device_name=os.getenv("DELEG8_OUTPUT_DEVICE_NAME", "").strip() or None,
+            verify_cables=_env_bool("DELEG8_AUDIO_PREFLIGHT", True),
+            auto_route=_env_bool("DELEG8_AUDIO_AUTOROUTE", True),
             endpointing_ms=_env_int("DELEG8_STT_ENDPOINTING_MS", 300, minimum=10),
             utterance_end_ms=_env_int("DELEG8_STT_UTTERANCE_END_MS", 1000, minimum=100),
             barge_in_min_words=_env_int("DELEG8_BARGE_IN_MIN_WORDS", 1, minimum=1),

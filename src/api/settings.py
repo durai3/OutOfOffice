@@ -31,7 +31,7 @@ from src.db.base import CommittingRoute
 from src.db.models import ConsentMode
 from src.escalation.hub import issue_link_code
 from src.tenancy import credentials as creds
-from src.usage.meter import PLANS, plan_for, quota_status
+from src.usage.meter import PLANS, plan_for_context, quota_status
 
 logger = logging.getLogger("deleg8.api.settings")
 
@@ -181,8 +181,9 @@ def _preferences(context: CurrentContext) -> Preferences:
 def _response(context: CurrentContext, request: Request) -> SettingsResponse:
     resolved = creds.resolve(context.session, context.user_id)
     own_keys = not (resolved.uses_platform_llm or resolved.uses_platform_voice)
-    plan = PLANS["unlimited"] if own_keys else plan_for(context.user.settings)
-    status_now = quota_status(context.session, context.user_id, own_keys=own_keys)
+    org_settings = context.org.settings if context.org is not None else None
+    plan = PLANS["unlimited"] if own_keys else plan_for_context(context.user.settings, org_settings)
+    status_now = quota_status(context.session, context.user_id, own_keys=own_keys, org_settings=org_settings)
     return SettingsResponse(
         preferences=_preferences(context),
         consent_modes=describe_modes(),

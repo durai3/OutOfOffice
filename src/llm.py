@@ -405,9 +405,13 @@ class GeminiLlm(_ChainedLlm):
             if exc.code == 400 and want_thinking_control:
                 logger.info("%s rejected an explicit thinking budget; retrying without it", model)
                 self._no_thinking_control.add(model)
-                return await self._attempt(
+                # Recurse rather than call _attempt directly: this re-enters the
+                # try/except above so a failure on the retry (e.g. a 503 while
+                # the model is overloaded) is still translated and handled by
+                # generate()'s fallback chain instead of crashing the process.
+                return await self._call_one(
                     model, system=system, user=user, schema=schema, role=role, timeout=timeout,
-                    max_output_tokens=max_output_tokens, disable_thinking=False,
+                    max_output_tokens=max_output_tokens,
                 )
             raise self._translate(model, exc) from exc
         except genai_errors.APIError as exc:

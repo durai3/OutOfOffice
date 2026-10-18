@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Lock, UserCog } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -58,7 +59,9 @@ export function AccountCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Account</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <UserCog className="size-4 text-muted-foreground" aria-hidden="true" /> Account
+        </CardTitle>
         <CardDescription>
           {account?.email} · principal id <code className="font-mono">{account?.principal?.slug}</code>
         </CardDescription>
@@ -87,7 +90,9 @@ export function AccountCard() {
         </form>
 
         <form onSubmit={changePassword} className="space-y-3 border-t border-border pt-4">
-          <p className="text-sm font-medium">Change password</p>
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <Lock className="size-3.5 text-muted-foreground" aria-hidden="true" /> Change password
+          </p>
           <div className="space-y-1.5">
             <Label htmlFor="current">Current password</Label>
             <Input id="current" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />

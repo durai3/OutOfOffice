@@ -131,6 +131,14 @@ def plan_for(user_settings: dict | None) -> Quota:
     return PLANS.get(key, PLANS[DEFAULT_PLAN])
 
 
+def plan_for_context(user_settings: dict | None, org_settings: dict | None) -> Quota:
+    """The quota for a tenant: an organization member's plan comes from the
+    organization's settings, shared across every seat; a solo account's plan
+    comes from its own settings exactly as :func:`plan_for` already resolved it.
+    """
+    return plan_for(org_settings if org_settings is not None else user_settings)
+
+
 def month_start(now: datetime | None = None) -> datetime:
     """Midnight UTC on the first of the current month."""
     moment = now or datetime.now(timezone.utc)
@@ -196,10 +204,18 @@ class QuotaStatus:
         )
 
 
-def quota_status(session: Session, user_id: uuid.UUID, *, own_keys: bool = False) -> QuotaStatus:
-    """Read one tenant's consumption for the current month."""
+def quota_status(
+    session: Session, user_id: uuid.UUID, *, own_keys: bool = False, org_settings: dict | None = None
+) -> QuotaStatus:
+    """Read one tenant's consumption for the current month.
+
+    ``org_settings`` is the caller's organization's settings blob, when they
+    belong to one - pass ``context.org.settings`` from a request's
+    :class:`~src.auth.deps.TenantContext`. ``None`` for a solo account keeps
+    today's per-user plan resolution unchanged.
+    """
     user = repo.get_user(session, user_id)
-    plan = plan_for(user.settings if user is not None else None)
+    plan = plan_for_context(user.settings if user is not None else None, org_settings)
     if own_keys:
         plan = PLANS["unlimited"]
     start = month_start()
@@ -226,9 +242,11 @@ class QuotaExceeded(RuntimeError):
         self.status = status
 
 
-def check_quota(session: Session, user_id: uuid.UUID, *, own_keys: bool = False) -> QuotaStatus:
+def check_quota(
+    session: Session, user_id: uuid.UUID, *, own_keys: bool = False, org_settings: dict | None = None
+) -> QuotaStatus:
     """Raise :class:`QuotaExceeded` when this tenant may not start another meeting."""
-    status = quota_status(session, user_id, own_keys=own_keys)
+    status = quota_status(session, user_id, own_keys=own_keys, org_settings=org_settings)
     if status.blocked:
         raise QuotaExceeded(status)
     return status

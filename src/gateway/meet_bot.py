@@ -59,6 +59,7 @@ from src.gateway.bot_base import (
     env_bool,
     env_number,
     env_str,
+    pin_microphone_script,
     resolve_path,
 )
 
@@ -95,7 +96,10 @@ How to configure the DELEG8 Google Meet bot
        MEET_JOIN_URL=https://meet.google.com/abc-defg-hij
 
 4. Audio routing (two virtual cables, e.g. BlackHole 2ch + BlackHole 16ch on macOS)
-   python -m src.audio.device_setup --select --write
+   python -m src.audio.cable_check --apply
+   This measures each cable rather than trusting its name - a driver that is
+   installed but never loaded enumerates and opens normally while carrying no
+   audio at all - and points the system defaults at the two that work.
    Chromium must run with a window (BOT_HEADLESS=false): headless Chromium has no audio devices.
 """
 
@@ -175,12 +179,18 @@ LOGIN_BLOCKED_TEXTS: tuple[str, ...] = (
     "Wrong password",
 )
 PARTICIPANT_TILE_SELECTOR: str = "[data-participant-id]"
-"""Each visible video/audio tile in the call grid; historically one of the more
-stable Meet DOM hooks for a live headcount. Best-effort like everything else in
-this file: :meth:`GoogleMeetBot.get_participant_count` falls back to the
-People-panel badge, then to ``None`` (unknown) rather than raising."""
-PEOPLE_COUNT_BADGE: str = '[aria-label*="Show everyone"], [aria-label*="People"], [aria-label*="participants"]'
-_PEOPLE_COUNT_RE = re.compile(r"\((\d+)\)")
+"""Elements in the call grid tagged with whose stream they show.
+
+One person owns several of these at once (a main tile and a filmstrip
+thumbnail, say), so :meth:`GoogleMeetBot.get_participant_count` counts the
+distinct ``data-participant-id`` *values* rather than the elements. Best-effort
+like everything else in this file: it prefers the People-panel badge and falls
+back to ``None`` (unknown) rather than raising."""
+PEOPLE_COUNT_BADGE: str = (
+    '[aria-label*="Show everyone"], [aria-label*="People"], [aria-label*="participants"], '
+    '[aria-label*="Participants"]'
+)
+_PEOPLE_COUNT_RE = re.compile(r"\((\d+)\)|\b(\d+)\s+(?:people|participants?)\b", re.IGNORECASE)
 
 LOGIN_CHALLENGE_TEXTS: tuple[str, ...] = (
     "2-Step Verification",
@@ -423,6 +433,14 @@ class GoogleMeetBot:
                     "Playwright's Chromium is not installed. Run:  python -m playwright install chromium"
                 ) from exc
             raise MeetConfigError(f"Could not launch Chromium: {exc}") from exc
+        if settings.meet_mic_name:
+            # Pin the microphone at the source rather than only clicking through
+            # Meet's settings dialog: the dialog's DOM changes without notice,
+            # and when the cable cannot be made the OS default input (some
+            # virtual devices are silently refused) a missed click means the
+            # room never hears the delegate at all. Harmless if the device is
+            # absent - the page's own request goes through untouched.
+            await self._context.add_init_script(pin_microphone_script(settings.meet_mic_name))
         self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
         self._page.set_default_timeout(15_000)
         await self._context.grant_permissions(["microphone", "camera"], origin="https://meet.google.com")
@@ -731,7 +749,13 @@ class GoogleMeetBot:
                 await self._settle(1.0)
                 await self._dismiss_popups()
                 await self._set_microphone(True)
-                print(f"[MEET] in the call ({code}).", flush=True)
+                # Read the headcount now rather than waiting for the first
+                # health tick: the delegate's very first turn can arrive before
+                # that, and with the count still unknown it would be planned on
+                # a guess about how many people are in the room.
+                self.participant_count = await self.get_participant_count()
+                heads = f", {self.participant_count} in the room" if self.participant_count else ""
+                print(f"[MEET] in the call ({code}){heads}.", flush=True)
                 return
             denied = await self._visible_text(DENIED_TEXTS)
             if denied:
@@ -769,25 +793,68 @@ class GoogleMeetBot:
     async def get_participant_count(self) -> int | None:
         """Best-effort headcount of everyone currently in the call, this bot included.
 
-        Tries the call grid's video/audio tiles first, then the People panel's
-        numeric badge. Meet's DOM for both changes without notice, like
-        everything else this file scrapes, so any failure here returns ``None``
-        rather than raising - callers already treat ``None`` as "unknown" and
-        fall back to their default behaviour instead of guessing a number.
+        Reads the People panel's numeric badge first and the call grid's tiles
+        second. That order matters: Meet renders more than one element per
+        person (a main tile plus a filmstrip thumbnail, a presentation surface),
+        so *counting tiles* reports a one-on-one call as three or four people.
+        The headcount feeds :func:`~src.brain.planner._meeting_mode_guidance`,
+        where three or more turns the delegate from the room's default
+        respondent into one voice among several - so an over-count does not
+        just mis-report the call, it makes the delegate go quiet in exactly the
+        one-on-one it should be most talkative in. Tiles are therefore
+        de-duplicated by participant id rather than counted, and the badge,
+        which Meet computes itself, is preferred.
+
+        Meet's DOM changes without notice, like everything else this file
+        scrapes, so any failure returns ``None`` rather than raising - callers
+        already treat ``None`` as "unknown" and fall back to one-on-one
+        behaviour instead of guessing a number.
         """
         try:
-            tiles = await self._count(PARTICIPANT_TILE_SELECTOR)
-            if tiles > 0:
-                return tiles
-            badge = self.page.locator(PEOPLE_COUNT_BADGE).first
-            if await badge.count() > 0:
-                label = (await badge.get_attribute("aria-label")) or await badge.inner_text()
-                match = _PEOPLE_COUNT_RE.search(label or "")
-                if match:
-                    return int(match.group(1))
+            badge = await self._people_badge_count()
+            if badge is not None and badge > 0:
+                return badge
+            unique = await self._unique_participant_ids()
+            if unique > 0:
+                return unique
         except PlaywrightError as exc:
             logger.debug("participant count unavailable: %s", exc)
         return None
+
+    async def _people_badge_count(self) -> int | None:
+        """The headcount Meet itself shows on the People button, e.g. "People (2)"."""
+        badges = self.page.locator(PEOPLE_COUNT_BADGE)
+        try:
+            total = await badges.count()
+        except PlaywrightError:
+            return None
+        for position in range(min(total, 4)):
+            badge = badges.nth(position)
+            for source in (badge.get_attribute("aria-label"), badge.inner_text()):
+                try:
+                    label = await source
+                except PlaywrightError:
+                    continue
+                match = _PEOPLE_COUNT_RE.search(label or "")
+                if match:
+                    return int(match.group(1) or match.group(2))
+        return None
+
+    async def _unique_participant_ids(self) -> int:
+        """How many *distinct* participants the call grid is showing.
+
+        One person can own several tiles at once, so the attribute values are
+        collected into a set in the page rather than the elements being counted.
+        """
+        try:
+            ids = await self.page.eval_on_selector_all(
+                PARTICIPANT_TILE_SELECTOR,
+                "nodes => new Set(nodes.map(n => n.getAttribute('data-participant-id'))"
+                ".filter(Boolean)).size",
+            )
+        except PlaywrightError:
+            return 0
+        return int(ids) if isinstance(ids, (int, float)) else 0
 
     async def check_health(self) -> str | None:
         """One health probe: ``None`` while in the call, otherwise why it is not."""

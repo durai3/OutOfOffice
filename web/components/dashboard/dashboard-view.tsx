@@ -101,17 +101,17 @@ function DelegateStatusCard({ status, loading }: { status: DelegateStatus | unde
   const headline = delegateHeadline(status);
   const tone = headline.tone;
   return (
-    <Card className="relative overflow-hidden">
+    <Card className="relative overflow-hidden pt-1">
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-x-0 top-0 h-0.5",
+          "absolute inset-x-0 top-0 h-1",
           tone === "live" ? "bg-success" : tone === "busy" ? "bg-info" : tone === "error" ? "bg-danger" : "bg-border",
         )}
       />
       <CardHeader className="pb-2">
-        <CardDescription className="flex items-center gap-1.5 uppercase tracking-wider">
-          <Waves className="size-3.5" /> Active Delegate Status
+        <CardDescription className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em]">
+          <Waves className="size-3.5" /> Delegate Status
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
@@ -120,6 +120,14 @@ function DelegateStatusCard({ status, loading }: { status: DelegateStatus | unde
         ) : (
           <>
             <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "relative size-2.5 shrink-0 rounded-full",
+                  tone === "live" ? "bg-success" : tone === "busy" ? "bg-info" : tone === "error" ? "bg-danger" : "bg-muted-foreground/40",
+                )}
+              >
+                {tone === "live" ? <span className="absolute inset-0 rounded-full bg-success pulse-dot" /> : null}
+              </span>
               <span className="text-2xl font-semibold tracking-tight">{headline.label}</span>
               {status ? <ActivityBadge activity={status.activity} /> : null}
             </div>
@@ -139,6 +147,11 @@ function DelegateStatusCard({ status, loading }: { status: DelegateStatus | unde
                 <span>No session yet. Dispatch one below.</span>
               )}
             </div>
+            {status?.updated_at ? (
+              <div className="mt-1 border-t border-dashed border-border pt-2 font-mono text-[11px] text-muted-foreground/70">
+                updated {timeAgo(status.updated_at)}
+              </div>
+            ) : null}
           </>
         )}
       </CardContent>
@@ -147,11 +160,12 @@ function DelegateStatusCard({ status, loading }: { status: DelegateStatus | unde
 }
 
 function ProfileCard({ profile, loading }: { profile: ProfileSummary | undefined; loading: boolean }) {
+  const initials = profile?.display_name.trim().slice(0, 2).toUpperCase() || "—";
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardDescription className="flex items-center gap-1.5 uppercase tracking-wider">
-          <ShieldCheck className="size-3.5" /> Active Policy Profile
+        <CardDescription className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em]">
+          <ShieldCheck className="size-3.5" /> Principal
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
@@ -159,8 +173,11 @@ function ProfileCard({ profile, loading }: { profile: ProfileSummary | undefined
           <Skeleton className="h-7 w-40" />
         ) : (
           <>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-2xl font-semibold tracking-tight">{profile.display_name}</span>
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(140deg,var(--primary),color-mix(in_oklch,var(--primary)_55%,white))] text-xs font-semibold text-primary-foreground">
+                {initials}
+              </div>
+              <span className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight">{profile.display_name}</span>
               <Link href="/policy" className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
                 edit <ArrowUpRight className="size-3" />
               </Link>
@@ -182,35 +199,78 @@ function ProfileCard({ profile, loading }: { profile: ProfileSummary | undefined
 
 function StatCard({ title, icon, value, hint, href }: { title: string; icon: React.ReactNode; value: number | null; hint: string; href: string }) {
   return (
-    <Card>
+    <Card className="flex flex-col">
       <CardHeader className="pb-2">
-        <CardDescription className="flex items-center gap-1.5 uppercase tracking-wider">
+        <CardDescription className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em]">
           {icon} {title}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2">
+      <CardContent className="flex flex-1 flex-col gap-2">
         {value === null ? (
-          <Skeleton className="h-7 w-16" />
+          <Skeleton className="h-9 w-16" />
         ) : (
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="tabular text-2xl font-semibold tracking-tight">{value}</span>
-            <Link href={href} className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
-              view <ArrowUpRight className="size-3" />
-            </Link>
-          </div>
+          <span className="tabular text-[2.25rem] font-semibold leading-none tracking-tight">{value}</span>
         )}
-        <span className="text-xs text-muted-foreground">{hint}</span>
+        <div className="mt-auto flex items-baseline justify-between gap-2 pt-1">
+          <span className="text-xs text-muted-foreground">{hint}</span>
+          <Link href={href} className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
+            view <ArrowUpRight className="size-3" />
+          </Link>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
+const SYSTEM_RING_RADIUS = 27;
+const SYSTEM_RING_CIRCUMFERENCE = 2 * Math.PI * SYSTEM_RING_RADIUS;
+
 function SystemCard({ data }: { data: DashboardResponse | undefined }) {
+  const rows = data
+    ? [
+        { label: "Escalation", value: data.escalation_bridge, ok: !data.escalation_bridge.startsWith("disabled") },
+        { label: "Knowledge", value: data.knowledge, ok: data.knowledge_available },
+        { label: "Briefing", value: data.summariser, ok: !data.summariser.includes("disabled") },
+        { label: "Consent", value: CONSENT_LABEL[data.consent_mode] ?? data.consent_mode, ok: data.consent_mode !== "notify_only" },
+        {
+          label: "Plan",
+          value: `${data.plan} · ${Math.round(Math.max(0, ...Object.values(data.usage_fractions)) * 100)}% of this month used`,
+          ok: !data.quota_blocked,
+        },
+        { label: "Version", value: `API ${data.version}`, ok: true },
+      ]
+    : [];
+  const done = rows.filter((r) => r.ok).length;
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Your setup</CardTitle>
-        <CardDescription>What your delegate runs on. Nothing here is shared with another account.</CardDescription>
+      <CardHeader className="flex-row items-center gap-4 pb-3">
+        {data ? (
+          <div className="relative size-14 shrink-0">
+            <svg width="56" height="56" viewBox="0 0 64 64" className="-rotate-90">
+              <circle cx="32" cy="32" r={SYSTEM_RING_RADIUS} fill="none" stroke="var(--border)" strokeWidth="6" />
+              <circle
+                cx="32"
+                cy="32"
+                r={SYSTEM_RING_RADIUS}
+                fill="none"
+                stroke="var(--primary)"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeDasharray={`${((SYSTEM_RING_CIRCUMFERENCE * done) / rows.length).toFixed(1)} ${SYSTEM_RING_CIRCUMFERENCE.toFixed(1)}`}
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center text-sm font-semibold">
+              {done}/{rows.length}
+            </div>
+          </div>
+        ) : (
+          <Skeleton className="size-14 rounded-full" />
+        )}
+        <div>
+          <CardTitle>Your setup</CardTitle>
+          <CardDescription>What your delegate runs on. Nothing here is shared with another account.</CardDescription>
+        </div>
       </CardHeader>
       <CardContent>
         {!data ? (
@@ -220,21 +280,10 @@ function SystemCard({ data }: { data: DashboardResponse | undefined }) {
             <Skeleton className="h-4 w-2/3" />
           </div>
         ) : (
-          <dl className="flex flex-col gap-2.5 text-xs">
-            <SystemRow label="Escalation" value={data.escalation_bridge} ok={!data.escalation_bridge.startsWith("disabled")} />
-            <SystemRow label="Knowledge" value={data.knowledge} ok={data.knowledge_available} />
-            <SystemRow label="Briefing" value={data.summariser} ok={!data.summariser.includes("disabled")} />
-            <SystemRow
-              label="Consent"
-              value={CONSENT_LABEL[data.consent_mode] ?? data.consent_mode}
-              ok={data.consent_mode !== "notify_only"}
-            />
-            <SystemRow
-              label="Plan"
-              value={`${data.plan} · ${Math.round(Math.max(0, ...Object.values(data.usage_fractions)) * 100)}% of this month used`}
-              ok={!data.quota_blocked}
-            />
-            <SystemRow label="Version" value={`API ${data.version}`} ok />
+          <dl className="flex flex-col">
+            {rows.map((row) => (
+              <SystemRow key={row.label} label={row.label} value={row.value} ok={row.ok} />
+            ))}
           </dl>
         )}
       </CardContent>
@@ -250,7 +299,7 @@ const CONSENT_LABEL: Record<string, string> = {
 
 function SystemRow({ label, value, ok }: { label: string; value: string; ok: boolean }) {
   return (
-    <div className="flex items-start gap-2">
+    <div className="flex items-start gap-2 border-t border-border py-2 text-xs first:border-t-0 first:pt-0">
       <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", ok ? "bg-success" : "bg-warning")} aria-hidden="true" />
       <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
       <dd className="min-w-0 flex-1 break-words leading-5" title={value}>{value}</dd>
@@ -266,7 +315,7 @@ function RecentBriefs({ briefs, loading }: { briefs: MeetingBrief[] | undefined;
           <CardTitle>Recent briefs</CardTitle>
           <CardDescription>Latest executive summaries.</CardDescription>
         </div>
-        <Link href="/history" className="text-xs text-muted-foreground hover:text-foreground">all</Link>
+        <Link href="/history" className="text-xs font-medium text-muted-foreground hover:text-foreground">All briefs</Link>
       </CardHeader>
       <CardContent>
         {loading ? (

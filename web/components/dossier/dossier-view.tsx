@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Pencil, RotateCcw, Save, Sparkles, X } from "lucide-react";
+import { CheckCircle2, FileText, Pencil, Quote, RotateCcw, Save, Sparkles, X } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useApi } from "@/hooks/use-api";
 import { PageHeader } from "@/components/page-header";
@@ -112,6 +112,13 @@ export function DossierView() {
       ) : null}
 
       {data && data.markdown.trim() ? (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-primary/25 bg-primary/10 px-4 py-3 text-sm text-primary">
+          <Quote className="mt-0.5 size-4 shrink-0" />
+          <p>The delegate may say only what is written below. Each line is a claim it can make on your behalf.</p>
+        </div>
+      ) : null}
+
+      {data && data.markdown.trim() ? (
         <Card>
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -179,17 +186,17 @@ function DossierReader({ markdown }: { markdown: string }) {
   return (
     <div className="space-y-6">
       {blocks.intro ? <p className="text-sm leading-relaxed text-muted-foreground">{blocks.intro}</p> : null}
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         {blocks.sections.map((section) => (
-          <section key={section.heading} className="min-w-0">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <section key={section.heading} className="min-w-0 rounded-lg border border-border p-4">
+            <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {section.heading}
             </h3>
             {section.bullets.length ? (
-              <ul className="space-y-1.5">
+              <ul className="flex flex-col">
                 {section.bullets.map((bullet, index) => (
-                  <li key={index} className="flex gap-2 text-sm leading-relaxed">
-                    <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <li key={index} className="flex gap-2 border-t border-border py-1.5 text-sm leading-relaxed first:border-t-0 first:pt-0">
+                    <CheckCircle2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-success" />
                     <span className="min-w-0 break-words">{bullet}</span>
                   </li>
                 ))}

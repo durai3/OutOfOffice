@@ -1,22 +1,34 @@
 """
 ``/api/v1/auth`` - signup, sign-in, token refresh, account maintenance.
 
-    POST   /api/v1/auth/signup      create an account (installs a principal, policy, legal record)
-    POST   /api/v1/auth/login       exchange credentials for a token pair
-    POST   /api/v1/auth/refresh     rotate the refresh token, get a new access token
-    POST   /api/v1/auth/logout      revoke one refresh token
-    GET    /api/v1/auth/me          the signed-in account
-    PATCH  /api/v1/auth/me          rename the account or its principal
-    POST   /api/v1/auth/password    change the password (revokes every session)
-    DELETE /api/v1/auth/me          erase the account and everything it owns
+    POST   /api/v1/auth/signup                     create an account (installs a principal, policy, legal record)
+    POST   /api/v1/auth/login                       exchange credentials for a token pair
+    GET    /api/v1/auth/oauth/{provider}/start      begin "Continue with Google/Microsoft"; returns the consent URL
+    GET    /api/v1/auth/oauth/{provider}/callback   the provider redirects the browser here; not session-authed
+    POST   /api/v1/auth/refresh                     rotate the refresh token, get a new access token
+    POST   /api/v1/auth/logout                      revoke one refresh token
+    GET    /api/v1/auth/me                          the signed-in account
+    PATCH  /api/v1/auth/me                          rename the account or its principal
+    POST   /api/v1/auth/password                    change the password (revokes every session)
+    DELETE /api/v1/auth/me                          erase the account and everything it owns
+
+The OAuth callback is a plain browser redirect from the provider with no
+``Authorization`` header, so unlike every other route here it cannot use
+:data:`~src.auth.deps.CurrentContext`. It trusts only the signed ``state``
+token minted by ``oauth/start`` (:func:`src.auth.security.create_oauth_login_state_token`)
+- see that function's docstring for why it is deliberately not the same
+token type as a connector's state token or a real session token.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Annotated
+import os
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -30,9 +42,16 @@ from src.auth.models import (
     SignupRequest,
     TokenResponse,
 )
-from src.auth.security import AuthError
+from src.auth.oauth_identity import OAuthLoginError, get_login_provider
+from src.auth.security import (
+    AuthError,
+    create_oauth_login_state_token,
+    decode_oauth_login_state_token,
+)
 from src.auth.service import (
+    AccountDisabledError,
     CredentialsError,
+    OAuthLinkError,
     SignupError,
     account_response,
     authenticate,
@@ -40,11 +59,12 @@ from src.auth.service import (
     delete_account,
     issue_tokens,
     provision_account,
+    provision_or_link_oauth_account,
     rotate_refresh_token,
     sign_out,
 )
 from src.brain.policy_templates import TEMPLATES
-from src.db.base import CommittingRoute, db_session
+from src.db.base import CommittingRoute, db_session, run_db
 
 logger = logging.getLogger("deleg8.auth.routes")
 
@@ -102,6 +122,7 @@ def signup(
             policy_template=body.policy_template,
             ip_address=_client_ip(request),
             user_agent=request.headers.get("user-agent"),
+            invite_token=body.invite_token,
         )
     except SignupError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
@@ -135,6 +156,123 @@ def login(
         expires_at=expires,
         account=account_response(session, user),
     )
+
+
+def _base_url() -> str:
+    """This server's own externally-reachable URL - identical convention to src/api/integrations.py."""
+    return os.getenv("DELEG8_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _login_redirect_uri(provider: str) -> str:
+    return f"{_base_url()}/api/v1/auth/oauth/{provider}/callback"
+
+
+class OAuthLoginStartResponse(BaseModel):
+    """Where to send the browser to begin a "Continue with Google/Microsoft" login."""
+
+    redirect_url: str
+
+
+@router.get("/oauth/{provider}/start", response_model=OAuthLoginStartResponse)
+def oauth_login_start(
+    provider: str,
+    origin: str = Query(..., description="window.location.origin of the tab that opened the popup."),
+    accept_terms: bool = Query(False, description="Set true only from the signup page's accepted checkbox."),
+) -> OAuthLoginStartResponse:
+    """Begin an SSO login or signup. Public - there is no session yet, unlike the connector version."""
+    identity_provider = get_login_provider(provider)
+    if identity_provider is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown SSO provider {provider!r}")
+    if not identity_provider.is_configured():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{provider.title()} sign-in is not configured on this server yet")
+    state = create_oauth_login_state_token(provider=provider, frontend_origin=origin, accept_terms=accept_terms)
+    url = identity_provider.build_authorize_url(redirect_uri=_login_redirect_uri(provider), state=state)
+    return OAuthLoginStartResponse(redirect_url=url)
+
+
+def _login_result_page(*, ok: bool, origin: str, message: str = "", tokens: TokenResponse | None = None) -> HTMLResponse:
+    """Hand the login result - including a real token pair on success - to ``window.opener``, then close.
+
+    Exactly the popup+postMessage+close mechanic of src/api/integrations.py's
+    ``_oauth_result_page``, except this one must carry a full session, since
+    there is no prior authenticated request to attach anything to instead.
+    """
+    safe_origin = origin if origin.startswith(("http://", "https://")) else "*"
+    payload: dict[str, Any] = {"source": "deleg8-oauth-login", "ok": ok, "message": message}
+    if ok and tokens is not None:
+        payload["tokens"] = tokens.model_dump(mode="json")
+    status_line = "Signed in. You can close this window." if ok else f"Could not sign in: {message}"
+    body = f"""<!doctype html><html><body style="font-family:sans-serif;padding:2rem;color:#1a1a1a">
+<p>{status_line}</p>
+<script>
+  if (window.opener) {{ window.opener.postMessage({json.dumps(payload)}, {json.dumps(safe_origin)}); }}
+  window.close();
+</script>
+</body></html>"""
+    return HTMLResponse(body, status_code=200 if ok else 400)
+
+
+@router.get("/oauth/{provider}/callback", response_class=HTMLResponse, include_in_schema=False)
+async def oauth_login_callback(
+    provider: str,
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> HTMLResponse:
+    """The provider redirects the browser here after consent. Trusts only the signed ``state``."""
+    identity_provider = get_login_provider(provider)
+    if identity_provider is None:
+        return _login_result_page(ok=False, origin="*", message="unknown provider")
+    if state is None:
+        return _login_result_page(ok=False, origin="*", message="missing state")
+    try:
+        claims = decode_oauth_login_state_token(state)
+    except AuthError as exc:
+        return _login_result_page(ok=False, origin="*", message=str(exc))
+    origin = claims.get("origin", "*")
+    if claims.get("provider") != provider:
+        return _login_result_page(ok=False, origin=origin, message="state mismatch")
+    if error or not code:
+        return _login_result_page(
+            ok=False, origin=origin, message=error_description or error or "sign-in was cancelled"
+        )
+    try:
+        identity = await identity_provider.exchange_code_for_identity(
+            code=code, redirect_uri=_login_redirect_uri(provider)
+        )
+    except OAuthLoginError as exc:
+        return _login_result_page(ok=False, origin=origin, message=str(exc))
+
+    ip_address = _client_ip(request)
+    user_agent = request.headers.get("user-agent")
+    accept_terms = bool(claims.get("accept_terms", False))
+
+    def _resolve(session: Session) -> tuple[TokenResponse, bool, str]:
+        user, created = provision_or_link_oauth_account(
+            session,
+            provider=provider,
+            provider_subject=identity.subject,
+            email=identity.email,
+            email_verified=identity.email_verified,
+            display_name=identity.display_name or identity.email.split("@")[0],
+            accept_terms=accept_terms,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        access, refresh, expires = issue_tokens(session, user, user_agent=user_agent)
+        tokens = TokenResponse(
+            access_token=access, refresh_token=refresh, expires_at=expires, account=account_response(session, user)
+        )
+        return tokens, created, user.email
+
+    try:
+        tokens, created, email = await run_db(_resolve)
+    except (OAuthLinkError, AccountDisabledError) as exc:
+        return _login_result_page(ok=False, origin=origin, message=str(exc))
+    logger.info("%s account %s via %s SSO", "new" if created else "existing", email, provider)
+    return _login_result_page(ok=True, origin=origin, tokens=tokens)
 
 
 @router.post("/refresh", response_model=TokenResponse, responses={401: {"model": ErrorResponse}})

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, ExternalLink, KeyRound, Trash2 } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,18 +60,28 @@ export function CredentialsCard({ settings, onSaved }: { settings: SettingsRespo
       </CardHeader>
       <CardContent className="space-y-4">
         {rows.map((row) => (
-          <div key={row.provider} className="space-y-2 rounded-md border border-border p-3">
+          <div key={row.provider} className="space-y-2.5 rounded-lg border border-border p-3.5">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-sm font-medium">{row.label}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{row.label}</p>
+                  {row.own_key ? (
+                    <Badge variant="success">own key</Badge>
+                  ) : row.configured ? (
+                    <Badge variant="secondary">shared key</Badge>
+                  ) : (
+                    <Badge variant="outline">not configured</Badge>
+                  )}
+                  {row.verified_at ? <Badge variant="info">verified</Badge> : null}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
                   {row.own_key
                     ? `your key ${row.hint}`
                     : row.configured
                       ? "using the shared key (counts against your allowance)"
                       : "no key configured"}
-                  {row.verified_at ? " · verified" : ""}
                 </p>
+                {row.verify_error ? <p className="mt-1 text-[11px] text-danger">{row.verify_error}</p> : null}
               </div>
               <a
                 href={row.help_url}

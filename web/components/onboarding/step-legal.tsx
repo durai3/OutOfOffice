@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useApi } from "@/hooks/use-api";
 import { useAuth } from "@/lib/auth";
@@ -36,9 +37,9 @@ export function LegalStep({ onDone }: { onDone: () => Promise<void> | void }) {
   return (
     <div className="space-y-3 text-sm">
       {(documents.data ?? []).map((doc) => (
-        <div key={doc.key} className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+        <div key={doc.key} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
           <div className="min-w-0">
-            <Link href={`/legal/${doc.key}`} target="_blank" className="font-medium underline">
+            <Link href={`/legal/${doc.key}`} target="_blank" className="font-medium underline underline-offset-2">
               {doc.title}
             </Link>
             <p className="mt-0.5 text-xs text-muted-foreground">{doc.summary}</p>
@@ -48,7 +49,7 @@ export function LegalStep({ onDone }: { onDone: () => Promise<void> | void }) {
           </span>
         </div>
       ))}
-      <p className="text-xs text-muted-foreground">
+      <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
         The important clause: <strong className="text-foreground">you</strong> decide which meetings your delegate
         joins, and you are responsible for having the right to send it there.
       </p>
@@ -58,7 +59,9 @@ export function LegalStep({ onDone }: { onDone: () => Promise<void> | void }) {
           Accept and continue
         </Button>
       ) : (
-        <p className="text-xs text-success">Accepted. Nothing outstanding.</p>
+        <p className="flex items-center gap-1.5 text-xs font-medium text-success">
+          <Check className="size-3.5" aria-hidden="true" /> Accepted. Nothing outstanding.
+        </p>
       )}
     </div>
   );

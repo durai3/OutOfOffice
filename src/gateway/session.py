@@ -50,6 +50,7 @@ from typing import Any
 
 from src.audio.audio_io import AudioIO
 from src.audio.barge_in_handler import BargeInHandler
+from src.audio.cable_check import preflight as audio_preflight
 from src.audio.config import VoiceConfigError, VoiceSettings
 from src.audio.stt_stream import SttStream, Utterance
 from src.audio.tts_stream import TtsStream
@@ -436,6 +437,74 @@ class MeetingSession:
             logger.warning("could not speak the consent disclosure: %s", exc)
             self._emit("consent.announce_failed", error=str(exc))
 
+    async def _verify_audio_route(self) -> None:
+        """Measure the virtual cables and pin the session to ones that work.
+
+        The delegate hears a browser meeting through a loopback device, and two
+        ways of having the wrong one are completely silent: a cable whose
+        driver is installed but never loaded (it enumerates, opens, and returns
+        silence forever) and a device index that has drifted onto something
+        else because PortAudio renumbered the device list. Either one produces
+        a call in which Deepgram is connected, the console says ``[READY]``,
+        and not one word is ever transcribed.
+
+        So the route is measured here rather than assumed:
+        :func:`~src.audio.cable_check.preflight` plays a tone into each
+        loopback device and records it back, swaps in a working cable when the
+        configured one is deaf, and points the system defaults - which is all
+        Chromium follows - at the two ends. The session is then rebound to the
+        devices by *name*, so what the voice loop opens cannot drift between
+        this check and the stream actually opening.
+
+        Never fatal: a machine with no virtual cable at all (a Linux worker, a
+        CI box) still joins and still speaks, and the reason it cannot hear is
+        on the record instead of being a mystery.
+        """
+        voice = self.config.voice
+        if not voice.verify_cables and not voice.auto_route:
+            return
+        try:
+            route, changes = await asyncio.to_thread(audio_preflight, voice)
+        except Exception as exc:  # noqa: BLE001 - a diagnostic must never end a call
+            logger.warning("audio route check failed: %s", exc)
+            self._emit("audio.route_check_failed", error=str(exc))
+            return
+
+        _print("[AUDIO] route check:")
+        _print(route.describe())
+        for change in changes:
+            _print(f"[AUDIO] {change}")
+        if route.deaf:
+            _print("[AUDIO] WARNING: the delegate's input device carries no audio - it will hear nothing. "
+                   "Run `python -m src.audio.cable_check` to see which cables work.")
+        self._emit("audio.route", **route.as_dict())
+
+        if route.ears is None or route.mouth is None:
+            return
+        # Pin by name: the names cannot be renumbered out from under the voice
+        # loop between now and AudioIO opening the streams, while the indexes can.
+        voice = dataclasses.replace(
+            voice,
+            input_device_name=route.ears.name,
+            output_device_name=route.mouth.name,
+            input_device_index=route.ears.index,
+            output_device_index=route.mouth.index,
+        )
+        bot_settings = self.config.bot_settings
+        pick_mic_in_app = bool(route.in_app_mic) and not getattr(bot_settings, "meet_mic_name", "")
+        if pick_mic_in_app:
+            # The OS refused to make this cable the default input, so the
+            # meeting app has to pick it from its own audio settings or the
+            # room never hears the delegate at all.
+            _print(f"[AUDIO] asking the meeting to select {route.in_app_mic!r} as its microphone.")
+            bot_settings = dataclasses.replace(bot_settings, meet_mic_name=route.in_app_mic)
+        self.config = dataclasses.replace(self.config, voice=voice, bot_settings=bot_settings)
+        if pick_mic_in_app:
+            # Nothing has started yet, so rebuilding the bot on the corrected
+            # settings is safe - and it is the only way the new microphone name
+            # reaches it, since the bot was constructed with the old ones.
+            self.bot = _build_bot(self.config.platform, bot_settings, on_status=self._on_bot_status)
+
     async def interrupt_speech(self, reason: str) -> None:
         """Cut the delegate off mid-sentence (no-op when it is not speaking)."""
         if self._barge_in is not None and self._barge_in.is_bot_speaking:
@@ -472,6 +541,14 @@ class MeetingSession:
 
         exit_code = 0
         try:
+            # -- audio route, before the browser exists ------------------
+            # The probe plays a tone into the cable the meeting would be
+            # carrying, and the system defaults have to be right before
+            # Chromium opens its audio streams, so this goes first.
+            await self._verify_audio_route()
+            config = self.config
+            options, voice = config.options, config.voice
+
             # -- into the call (each step abandoned at once on a recall) --
             await self._until_stopped(self.bot.start())
             if config.bot_settings.has_credentials:

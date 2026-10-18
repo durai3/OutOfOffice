@@ -20,6 +20,7 @@ when a delegate is actually dispatched.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 
 from src.brain.intent import build_intent_classifier
@@ -138,6 +139,7 @@ class SessionComponents:
         llm: LlmClient | None = None,
         dossiers: DossierStore | None = None,
         commitments: CommitmentRegistry | None = None,
+        user_id: uuid.UUID | None = None,
     ) -> SessionComponents:
         """Wire engine, planner, memory, turn processor and reporter around an open bridge and knowledge.
 
@@ -147,6 +149,11 @@ class SessionComponents:
         the archive writes that account's briefs, the commitments registry
         mirrors to that account's rows. A bundle assembled for one user shares
         nothing mutable with a bundle assembled for another.
+
+        ``user_id`` is the real account id (not the brain's principal slug),
+        passed only by the multi-tenant server so the reporter can look up
+        that account's enabled integrations when a meeting concludes; the
+        command-line and worker paths leave it ``None`` and dispatch nothing.
         """
         principal_store: ProfileStore = store if store is not None else profile_store
         engine = PolicyEngine(principal_store, knowledge, intent_classifier=build_intent_classifier())
@@ -172,7 +179,7 @@ class SessionComponents:
             ),
         )
         reporter = PostMeetingReporter(
-            bridge, store=principal_store, archive=archive, llm=client, commitments=commitments
+            bridge, store=principal_store, archive=archive, llm=client, commitments=commitments, user_id=user_id
         )
         return cls(
             bridge=bridge,

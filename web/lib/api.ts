@@ -2,9 +2,15 @@ import { API_BASE } from "@/lib/config";
 import { clearTokens, getAccessToken, refreshTokens } from "@/lib/auth-store";
 import type {
   Account,
+  CalendarAccount,
+  CalendarEvent,
+  CalendarProviderInfo,
   ChannelSummary,
   ChunkPage,
   CommitmentsResponse,
+  CommitmentTrackerRow,
+  ConnectorOption,
+  ConnectorSummary,
   ConsentModeInfo,
   ConsentRecord,
   CredentialSummary,
@@ -12,8 +18,10 @@ import type {
   DegradationReport,
   DelegateStatus,
   DossierResponse,
+  HealthAnalyticsResponse,
   HealthResponse,
   IngestReport,
+  InvitePreview,
   JoinRequest,
   KnowledgeOverview,
   LegalDocument,
@@ -23,12 +31,18 @@ import type {
   MeetingListResponse,
   MeetingSnapshot,
   MeetingUsage,
+  OAuthStartResponse,
   OnboardingState,
+  OrganizationInvite,
+  OrganizationMember,
+  OrganizationSummary,
   PolicyTemplate,
   PostMeetingReport,
   RecentMeeting,
   RemoveDocumentResponse,
   RetrievalResult,
+  RoiResponse,
+  SearchResponse,
   SettingsResponse,
   SignupRequest,
   TelegramLink,
@@ -75,7 +89,20 @@ function describeDetail(detail: unknown): string {
 }
 
 /** Endpoints that must not carry (or retry with) a token: the ones that mint them. */
-const PUBLIC_PATHS = ["/api/v1/auth/login", "/api/v1/auth/signup", "/api/v1/auth/refresh", "/api/v1/health", "/api/v1/legal/documents"];
+const PUBLIC_PATHS = [
+  "/api/v1/auth/login",
+  "/api/v1/auth/signup",
+  "/api/v1/auth/refresh",
+  "/api/v1/auth/oauth",
+  "/api/v1/health",
+  "/api/v1/legal/documents",
+  // Note: the invite preview endpoint (GET .../invites/by-token/{token}) is
+  // not session-authed either, but it is deliberately NOT listed here - this
+  // array is matched by prefix, and the accept endpoint
+  // (POST .../invites/by-token/{token}/accept, which DOES need the bearer
+  // token) shares that same prefix. The preview route ignores auth entirely,
+  // so sending a token when one happens to exist is harmless either way.
+];
 
 async function send(path: string, init: RequestInit, token: string | null): Promise<Response> {
   const isForm = init.body instanceof FormData;
@@ -162,6 +189,10 @@ export const api = {
   changePassword: (current_password: string, new_password: string) =>
     request<{ detail: string }>("/api/v1/auth/password", { method: "POST", body: json({ current_password, new_password }) }),
   deleteAccount: () => request<{ detail: string }>("/api/v1/auth/me", { method: "DELETE" }),
+  startSsoLogin: (provider: "google" | "microsoft", origin: string, acceptTerms = false) =>
+    request<OAuthStartResponse>(
+      `/api/v1/auth/oauth/${provider}/start?origin=${encodeURIComponent(origin)}&accept_terms=${acceptTerms}`,
+    ),
 
   // -- legal ----------------------------------------------------------- //
   legalDocuments: () => request<LegalSummary[]>("/api/v1/legal/documents"),
@@ -240,6 +271,104 @@ export const api = {
   meeting: (meetingId: string) => request<MeetingSnapshot>(`/api/v1/meetings/${encodeURIComponent(meetingId)}`),
   conclude: (meetingId: string) =>
     request<PostMeetingReport>(`/api/v1/meetings/${encodeURIComponent(meetingId)}/conclude`, { method: "POST" }),
+
+  // -- integrations ------------------------------------------------------ //
+  integrations: () => request<ConnectorSummary[]>("/api/v1/integrations"),
+  authorizeIntegration: (connectorType: string, credential: string | null, config: Record<string, unknown> = {}) =>
+    request<ConnectorSummary>(`/api/v1/integrations/${encodeURIComponent(connectorType)}/authorize`, {
+      method: "POST",
+      body: json({ credential, config }),
+    }),
+  startOAuth: (connectorType: string, origin: string) =>
+    request<OAuthStartResponse>(
+      `/api/v1/integrations/${encodeURIComponent(connectorType)}/oauth/start?origin=${encodeURIComponent(origin)}`,
+    ),
+  connectorOptions: (connectorType: string) =>
+    request<ConnectorOption[]>(`/api/v1/integrations/${encodeURIComponent(connectorType)}/options`),
+  patchIntegration: (connectorType: string, body: { is_enabled?: boolean; config?: Record<string, unknown> }) =>
+    request<ConnectorSummary>(`/api/v1/integrations/${encodeURIComponent(connectorType)}`, {
+      method: "PATCH",
+      body: json(body),
+    }),
+  disconnectIntegration: (connectorType: string) =>
+    request<void>(`/api/v1/integrations/${encodeURIComponent(connectorType)}`, { method: "DELETE" }),
+
+  // -- search -------------------------------------------------------------- //
+  search: (q: string, type?: "meeting" | "commitment") =>
+    request<SearchResponse>(`/api/v1/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ""}`),
+
+  // -- commitments tracker -------------------------------------------------- //
+  commitmentsTracker: (status: string = "open", sort: string = "due_date") =>
+    request<CommitmentTrackerRow[]>(`/api/v1/commitments/tracker?status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}`),
+  markCommitmentDone: (id: string) =>
+    request<CommitmentTrackerRow>(`/api/v1/commitments/tracker/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: json({ action: "done" }),
+    }),
+  dropCommitment: (id: string) =>
+    request<CommitmentTrackerRow>(`/api/v1/commitments/tracker/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: json({ action: "dropped" }),
+    }),
+  snoozeCommitment: (id: string, days: number = 1) =>
+    request<CommitmentTrackerRow>(`/api/v1/commitments/tracker/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: json({ action: "snooze", snooze_days: days }),
+    }),
+
+  // -- analytics ------------------------------------------------------------ //
+  analyticsHealth: (weeks: number = 4) => request<HealthAnalyticsResponse>(`/api/v1/analytics/health?weeks=${weeks}`),
+  analyticsRoi: (days: number = 30) => request<RoiResponse>(`/api/v1/analytics/roi?days=${days}`),
+
+  // -- calendar --------------------------------------------------------- //
+  calendarProviders: () => request<CalendarProviderInfo[]>("/api/v1/calendar/providers"),
+  calendarAccounts: () => request<CalendarAccount[]>("/api/v1/calendar/accounts"),
+  startCalendarOAuth: (provider: string, origin: string) =>
+    request<OAuthStartResponse>(
+      `/api/v1/calendar/accounts/${encodeURIComponent(provider)}/oauth/start?origin=${encodeURIComponent(origin)}`,
+    ),
+  patchCalendarAccount: (accountId: string, is_enabled: boolean) =>
+    request<CalendarAccount>(`/api/v1/calendar/accounts/${encodeURIComponent(accountId)}`, {
+      method: "PATCH",
+      body: json({ is_enabled }),
+    }),
+  syncCalendarAccount: (accountId: string) =>
+    request<CalendarAccount>(`/api/v1/calendar/accounts/${encodeURIComponent(accountId)}/sync`, { method: "POST" }),
+  disconnectCalendarAccount: (accountId: string) =>
+    request<void>(`/api/v1/calendar/accounts/${encodeURIComponent(accountId)}`, { method: "DELETE" }),
+  calendarEvents: () => request<CalendarEvent[]>("/api/v1/calendar/events"),
+  setEventDeleg8: (eventId: string, deleg8_requested: boolean) =>
+    request<CalendarEvent>(`/api/v1/calendar/events/${encodeURIComponent(eventId)}`, {
+      method: "PATCH",
+      body: json({ deleg8_requested }),
+    }),
+
+  // -- organizations ----------------------------------------------------- //
+  createOrganization: (name: string) =>
+    request<OrganizationSummary>("/api/v1/organizations", { method: "POST", body: json({ name }) }),
+  myOrganization: () => request<OrganizationSummary>("/api/v1/organizations/me"),
+  organizationMembers: () => request<OrganizationMember[]>("/api/v1/organizations/members"),
+  inviteMember: (email: string, role: string) =>
+    request<OrganizationInvite>("/api/v1/organizations/invites", { method: "POST", body: json({ email, role }) }),
+  listInvites: () => request<OrganizationInvite[]>("/api/v1/organizations/invites"),
+  resendInvite: (id: string) =>
+    request<OrganizationInvite>(`/api/v1/organizations/invites/${encodeURIComponent(id)}/resend`, { method: "POST" }),
+  revokeInvite: (id: string) =>
+    request<{ detail: string }>(`/api/v1/organizations/invites/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setMemberRole: (userId: string, role: string) =>
+    request<OrganizationMember>(`/api/v1/organizations/members/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: json({ role }),
+    }),
+  removeMember: (userId: string) =>
+    request<{ detail: string }>(`/api/v1/organizations/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
+  leaveOrganization: () => request<{ detail: string }>("/api/v1/organizations/leave", { method: "POST" }),
+  previewInvite: (token: string) =>
+    request<InvitePreview>(`/api/v1/organizations/invites/by-token/${encodeURIComponent(token)}`),
+  acceptInvite: (token: string) =>
+    request<OrganizationMember>(`/api/v1/organizations/invites/by-token/${encodeURIComponent(token)}/accept`, {
+      method: "POST",
+    }),
 };
 
 export function errorMessage(error: unknown): string {
