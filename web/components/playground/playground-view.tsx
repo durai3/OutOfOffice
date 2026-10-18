@@ -1063,7 +1063,15 @@ function PhoneRequest({
     <div className="space-y-2">
       <div className="max-w-[92%] space-y-2 rounded-2xl rounded-tl-sm bg-zinc-800 px-3.5 py-3">
         <div className="flex items-center gap-2">
-          <TierBadge tier={approval.tier} />
+          {/* The badge colours are tuned for a light page; on the dark phone they need solid fills to stay readable. */}
+          <TierBadge
+            tier={approval.tier}
+            className={cn(
+              approval.tier === "GREEN" && "!border-emerald-400 !bg-emerald-400 !text-zinc-900",
+              approval.tier === "YELLOW" && "!border-amber-300 !bg-amber-300 !text-zinc-900",
+              approval.tier === "RED" && "!border-red-400 !bg-red-400 !text-zinc-900",
+            )}
+          />
           <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{topic}</span>
         </div>
         <p className="text-sm leading-snug">
