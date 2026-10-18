@@ -24,6 +24,7 @@ interface AuthValue {
   error: string | null;
   login: (email: string, password: string) => Promise<Account>;
   signup: (body: SignupRequest) => Promise<Account>;
+  demo: () => Promise<Account>;
   completeOAuthLogin: (payload: TokenResponse) => Account;
   logout: () => Promise<void>;
   reload: () => Promise<Account | null>;
@@ -87,6 +88,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return payload.account;
   }, []);
 
+  // A throwaway account for someone evaluating the product: no form, no email.
+  const demo = React.useCallback(async () => {
+    setError(null);
+    const payload = await api.demo();
+    setTokens({ access: payload.access_token, refresh: payload.refresh_token });
+    setAccount(payload.account);
+    setStatus("authenticated");
+    return payload.account;
+  }, []);
+
   // The SSO popup already did the signup/login round trip server-side and
   // posted back a full TokenResponse - no extra request needed here, just
   // the same local-state update login/signup already do.
@@ -116,8 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const value = React.useMemo<AuthValue>(
-    () => ({ status, account, error, login, signup, completeOAuthLogin, logout, reload, setAccount }),
-    [status, account, error, login, signup, completeOAuthLogin, logout, reload],
+    () => ({ status, account, error, login, signup, demo, completeOAuthLogin, logout, reload, setAccount }),
+    [status, account, error, login, signup, demo, completeOAuthLogin, logout, reload],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTechDetails } from "@/lib/tech-details";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, ChevronDown, Clock, FileText, Gavel, HelpCircle, ListChecks, RefreshCw, Search, Send, Users } from "lucide-react";
@@ -153,7 +154,7 @@ function LiveMeetings({ ids, onConcluded }: { ids: string[]; onConcluded: () => 
           Live memory
         </CardDescription>
         <CardTitle className="text-sm">Meetings still open</CardTitle>
-        <CardDescription>Still open in the API process. Conclude one to generate its briefing and archive it here.</CardDescription>
+        <CardDescription>Meetings that are still running. End one to get its briefing.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
         {ids.map((id) => (
@@ -167,7 +168,7 @@ function LiveMeetings({ ids, onConcluded }: { ids: string[]; onConcluded: () => 
                 setBusy(id);
                 try {
                   const report = await api.conclude(id);
-                  toast.push({ title: `Concluded ${id}`, description: `Briefing by ${report.summariser}; ${report.receipt.delivered ? "delivered" : "not delivered"} via ${report.receipt.channel}.`, variant: "success" });
+                  toast.push({ title: `Concluded ${id}`, description: report.receipt.delivered ? "Your briefing was sent to your phone." : "Your briefing is saved here.", variant: "success" });
                   await onConcluded();
                 } catch (err) {
                   toast.push({ title: "Could not conclude", description: errorMessage(err), variant: "error" });
@@ -186,6 +187,7 @@ function LiveMeetings({ ids, onConcluded }: { ids: string[]; onConcluded: () => 
 }
 
 function BriefDetail({ briefId }: { briefId: string }) {
+  const [tech] = useTechDetails();
   const report = useApi<PostMeetingReport>(() => api.brief(briefId), { key: briefId });
   const [showTranscript, setShowTranscript] = React.useState(false);
   const data = report.data;
@@ -224,9 +226,9 @@ function BriefDetail({ briefId }: { briefId: string }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={data.receipt.delivered ? "success" : "outline"} dot>
-                <Send className="size-3" /> {data.receipt.delivered ? `sent via ${data.receipt.channel}` : "not delivered"}
+                <Send className="size-3" /> {data.receipt.delivered ? "sent to your phone" : "not delivered"}
               </Badge>
-              <Badge variant="outline" title={data.fallback_reason ?? undefined}>{data.summariser.split(" ->")[0]}</Badge>
+              {tech ? <Badge variant="outline" title={data.fallback_reason ?? undefined}>{data.summariser.split(" ->")[0]}</Badge> : null}
             </div>
           </div>
         </CardHeader>

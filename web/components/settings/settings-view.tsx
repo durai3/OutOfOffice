@@ -30,7 +30,7 @@ export function SettingsView() {
     <div className="space-y-8">
       <PageHeader
         title="Settings"
-        description="Who your delegate represents, where it reaches you, whose API keys it spends, and how it handles consent."
+        description="Who your delegate speaks for, how it reaches you, and how it handles consent."
       />
       <div className="grid gap-6 lg:grid-cols-2">
         <AccountCard />

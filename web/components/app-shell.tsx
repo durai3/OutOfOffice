@@ -16,6 +16,7 @@ import {
   Monitor,
   Moon,
   PanelLeftClose,
+  FlaskConical,
   Plug,
   Radio,
   Search,
@@ -43,6 +44,7 @@ type NavLink = { href: string; label: string; icon: LucideIcon };
 // no meetings yet isn't staring at eight empty tabs.
 const NAV_PRIMARY: NavLink[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/playground", label: "Playground", icon: FlaskConical },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/live", label: "Live Monitor", icon: Radio },
   { href: "/policy", label: "Policy", icon: ShieldCheck },
@@ -276,12 +278,12 @@ function Sidebar({
   email: string;
   onLogout: () => void;
 }) {
-  const initials = (name || email || "D8").trim().slice(0, 2).toUpperCase();
+  const initials = (name || email || "OO").trim().slice(0, 2).toUpperCase();
 
   return (
     <aside
       className={cn(
-        "relative hidden shrink-0 flex-col overflow-hidden border-r border-black/40 bg-[linear-gradient(180deg,#151517_0%,#0e0e10_100%)] text-[#ededf0] transition-[width] duration-150 lg:flex",
+        "sticky top-0 hidden h-screen shrink-0 flex-col self-start overflow-hidden border-r border-black/40 bg-[linear-gradient(180deg,#151517_0%,#0e0e10_100%)] text-[#ededf0] transition-[width] duration-150 lg:flex",
         open ? "w-[248px]" : "w-[68px]",
       )}
     >
@@ -294,7 +296,7 @@ function Sidebar({
         {open ? (
           <>
             <div className="flex-1 font-semibold tracking-[0.14em]">
-              DELEG<span className="text-[#d8d8de]">8</span>
+              OUT <span className="text-[#d8d8de]">OF OFFICE</span>
             </div>
             <button
               type="button"
@@ -452,9 +454,9 @@ function ThemeSegment({ open }: { open: boolean }) {
 
 function Logo() {
   return (
-    <div className="flex w-[26px] shrink-0 flex-col items-center" aria-hidden="true">
-      <div className="size-[13px] rounded-full border-2 border-[#d8d8de]" />
-      <div className="-mt-0.5 size-[17px] rounded-full border-2 border-[#d8d8de] shadow-[0_0_14px_rgba(255,255,255,0.27)]" />
+    <div className="flex w-[30px] shrink-0 items-center justify-center" aria-hidden="true">
+      <div className="size-[16px] rounded-full border-2 border-[#d8d8de]" />
+      <div className="-ml-1.5 size-[16px] rounded-full border-2 border-[#d8d8de] shadow-[0_0_14px_rgba(255,255,255,0.27)]" />
     </div>
   );
 }

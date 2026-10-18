@@ -17,8 +17,8 @@ langchain-text-splitters>=0.3,<2.0
 pypdf>=5.0,<7.0
 # Post-meeting briefing, live intent detection, and RAG answer synthesis (Sprint 7/8) all
 # run on an LLM when a key is configured, falling back to deterministic/extractive
-# behaviour otherwise. Claude is preferred when ANTHROPIC_API_KEY is set; Gemini is used
-# when only GEMINI_API_KEY is set.
+# behaviour otherwise. Gemini is the default (GEMINI_API_KEY); Claude is used when only
+# ANTHROPIC_API_KEY is set, or when DELEG8_LLM_PROVIDER=claude.
 anthropic>=1.0,<2.0
 google-genai>=1.0,<3.0
 

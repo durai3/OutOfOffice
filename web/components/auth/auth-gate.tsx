@@ -17,6 +17,7 @@
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
+import { JUDGE_LANDING } from "@/components/auth/judge-entry";
 import { useAuth } from "@/lib/auth";
 
 /** Reachable without an account. */
@@ -34,7 +35,7 @@ const ANONYMOUS_ROUTES = ["/login", "/signup", "/legal"];
  * sign up) - either is a valid thing to do on the same URL, so neither state
  * gets redirected away from it.
  */
-const ALWAYS_ROUTES = ["/legal", "/invite"];
+const ALWAYS_ROUTES = ["/legal", "/invite", "/judges"];
 
 function matches(routes: string[], pathname: string): boolean {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
@@ -63,7 +64,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
     if (status === "authenticated" && publicRoute) {
-      router.replace("/");
+      // A one-click demo account has nothing to see on the dashboard yet; its home is the playground.
+      router.replace(account?.settings?.demo === true ? JUDGE_LANDING : "/");
       return;
     }
     if (status === "authenticated" && account && !account.onboarding_complete && !onboarding) {

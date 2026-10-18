@@ -551,8 +551,35 @@ def _models_from_env(provider: str, defaults: dict[ModelRole, tuple[str, ...]]) 
     return resolved
 
 
+PROVIDER_ENV = "DELEG8_LLM_PROVIDER"
+"""``gemini`` | ``claude`` | ``auto`` (the default). Which model family leads when keys for both exist."""
+
+
+def choose_provider(*, claude: bool, gemini: bool) -> str | None:
+    """Which provider to use given which keys exist: ``"gemini"``, ``"claude"`` or ``None``.
+
+    Gemini leads by default: it is the platform this product is built and
+    deployed on. ``DELEG8_LLM_PROVIDER=claude`` flips the preference; a
+    preference for a provider with no key quietly yields to the one that has
+    one, because a delegate on the other family beats a delegate with no brain.
+    Every factory that picks a model family goes through this one function, so
+    the planner, the intent classifier, answer synthesis and the briefing can
+    never disagree about which provider is live.
+    """
+    wanted = os.getenv(PROVIDER_ENV, "auto").strip().lower()
+    order = ("claude", "gemini") if wanted in {"claude", "anthropic"} else ("gemini", "claude")
+    available = {"claude": claude, "gemini": gemini}
+    for provider in order:
+        if available[provider]:
+            return provider
+    return None
+
+
 def build_llm(*, anthropic_key: str | None = None, gemini_key: str | None = None) -> LlmClient | None:
-    """Claude when an Anthropic key is available, else Gemini, else ``None``.
+    """Gemini when a Gemini key is available (the default), else Claude, else ``None``.
+
+    The order is set by :func:`choose_provider` and can be flipped with
+    ``DELEG8_LLM_PROVIDER=claude``.
 
     Keys may be passed explicitly - that is how a tenant's *own* key is used
     without mutating ``os.environ``, which one process serving many users
@@ -563,15 +590,16 @@ def build_llm(*, anthropic_key: str | None = None, gemini_key: str | None = None
     """
     claude = (anthropic_key or os.getenv("ANTHROPIC_API_KEY", "")).strip()
     gemini = (gemini_key or os.getenv("GEMINI_API_KEY", "")).strip()
-    if claude:
+    provider = choose_provider(claude=bool(claude), gemini=bool(gemini))
+    if provider == "gemini":
+        client: LlmClient = GeminiLlm(_models_from_env("gemini", GEMINI_MODELS), api_key=gemini)
+        logger.info("llm provider: %s", client.describe())
+        return client
+    if provider == "claude":
         client = AnthropicLlm(_models_from_env("anthropic", ANTHROPIC_MODELS), api_key=claude)
         logger.info("llm provider: %s", client.describe())
         return client
-    if gemini:
-        client = GeminiLlm(_models_from_env("gemini", GEMINI_MODELS), api_key=gemini)
-        logger.info("llm provider: %s", client.describe())
-        return client
-    logger.warning("llm provider: none (no Anthropic or Gemini key)")
+    logger.warning("llm provider: none (no Gemini or Anthropic key)")
     return None
 
 
@@ -596,7 +624,7 @@ async def preflight(client: LlmClient | None) -> PreflightResult:
     if client is None:
         return PreflightResult(
             ok=False, provider="none",
-            detail="no ANTHROPIC_API_KEY or GEMINI_API_KEY; the delegate cannot think",
+            detail="no GEMINI_API_KEY or ANTHROPIC_API_KEY; the delegate cannot think",
             elapsed_ms=0.0,
         )
     try:

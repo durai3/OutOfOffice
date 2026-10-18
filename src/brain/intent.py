@@ -17,8 +17,8 @@ the deterministic lexicon already gave. There is no separate "fallback
 implementation" the way :mod:`src.memory.post_meeting` has one, because
 ``False`` already *is* the fallback.
 
-:func:`build_intent_classifier` prefers Claude when ``ANTHROPIC_API_KEY`` is
-set, then Gemini when ``GEMINI_API_KEY`` is set, then falls back to ``None``
+:func:`build_intent_classifier` prefers Gemini when ``GEMINI_API_KEY`` is
+set (override with ``DELEG8_LLM_PROVIDER=claude``), then Claude, then falls back to ``None``
 (lexicon-only) - so the same code runs whichever provider you actually have
 credentials for, and automatically upgrades if you add the other one later.
 
@@ -43,6 +43,8 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 from pydantic import BaseModel, Field
+
+from src.llm import choose_provider
 
 logger = logging.getLogger("deleg8.brain.intent")
 
@@ -194,15 +196,19 @@ class GeminiIntentClassifier:
 
 
 def build_intent_classifier() -> RequestIntentClassifier | None:
-    """Claude when ``ANTHROPIC_API_KEY`` is set; else Gemini when ``GEMINI_API_KEY`` is set;
-    else ``None`` (lexicon-only)."""
-    if os.getenv("ANTHROPIC_API_KEY", "").strip():
-        model = os.getenv("DELEG8_INTENT_MODEL", "").strip() or DEFAULT_INTENT_MODEL
-        logger.info("intent classifier: claude (%s)", model)
-        return ClaudeIntentClassifier(model)
-    if os.getenv("GEMINI_API_KEY", "").strip():
+    """Gemini when ``GEMINI_API_KEY`` is set (the default); else Claude when ``ANTHROPIC_API_KEY``
+    is set; else ``None`` (lexicon-only). See :func:`src.llm.choose_provider`."""
+    provider = choose_provider(
+        claude=bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
+        gemini=bool(os.getenv("GEMINI_API_KEY", "").strip()),
+    )
+    if provider == "gemini":
         model = os.getenv("DELEG8_GEMINI_INTENT_MODEL", "").strip() or DEFAULT_GEMINI_INTENT_MODEL
         logger.info("intent classifier: gemini (%s)", model)
         return GeminiIntentClassifier(model)
-    logger.info("intent classifier: none (no ANTHROPIC_API_KEY or GEMINI_API_KEY); lexicon only")
+    if provider == "claude":
+        model = os.getenv("DELEG8_INTENT_MODEL", "").strip() or DEFAULT_INTENT_MODEL
+        logger.info("intent classifier: claude (%s)", model)
+        return ClaudeIntentClassifier(model)
+    logger.info("intent classifier: none (no GEMINI_API_KEY or ANTHROPIC_API_KEY); lexicon only")
     return None

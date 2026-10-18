@@ -22,3 +22,8 @@ data/tenants/
 # Local SQLite fallback when DATABASE_URL is unset (development only).
 data/deleg8.db
 data/deleg8.db-*
+# Personal documents and the dossier compiled from them (CVs, transcripts, cover letters).
+# Kept on disk for the single-user CLI and its evals; never committed. The committed
+# sample knowledge base lives in demo/documents/ and is fictional.
+data/documents/*.pdf
+data/dossier/

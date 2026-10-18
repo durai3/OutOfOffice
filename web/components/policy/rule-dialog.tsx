@@ -14,9 +14,9 @@ import { ChipInput } from "@/components/policy/chip-input";
 import { SUBJECT_RE, TOPIC_RE, normaliseTrigger } from "@/components/policy/rule-parser";
 
 export const TIER_META: Record<PolicyTier, { name: string; verb: string; blurb: string }> = {
-  GREEN: { name: "Green", verb: "Answer autonomously", blurb: "The delegate answers on its own, but only with a grounded fact from this profile or the document index. No fact, no answer: it escalates instead." },
-  YELLOW: { name: "Yellow", verb: "Ask before committing", blurb: "A request on this topic pauses the delegate and pings Telegram. It speaks only after you tap Approve, Reject, or Decline Politely." },
-  RED: { name: "Red", verb: "Never handle", blurb: "The moment the topic is raised, even as a statement, the delegate escalates and says nothing until you decide." },
+  GREEN: { name: "Green", verb: "Answer on its own", blurb: "Your delegate answers by itself, but only with facts from your profile or documents. If it doesn't know, it asks you instead of guessing." },
+  YELLOW: { name: "Yellow", verb: "Ask me first", blurb: "On this topic your delegate pauses and messages your phone. It only speaks after you tap Approve, Reject, or Decline politely." },
+  RED: { name: "Red", verb: "Never handle", blurb: "The moment this comes up, your delegate says nothing and asks you. It never answers this on its own." },
 };
 
 interface RuleDialogProps {

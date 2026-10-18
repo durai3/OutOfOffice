@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, BookOpen, Gauge, History, ListChecks, RefreshCw, ShieldCheck, Waves } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, BookOpen, History, ListChecks, RefreshCw, ShieldCheck, Waves } from "lucide-react";
 import { api } from "@/lib/api";
 import type { DashboardResponse, DelegateStatus, MeetingBrief, ProfileSummary } from "@/lib/types";
 import { cn, formatDateTime, humanTopic, timeAgo } from "@/lib/utils";
@@ -228,16 +228,16 @@ const SYSTEM_RING_CIRCUMFERENCE = 2 * Math.PI * SYSTEM_RING_RADIUS;
 function SystemCard({ data }: { data: DashboardResponse | undefined }) {
   const rows = data
     ? [
-        { label: "Escalation", value: data.escalation_bridge, ok: !data.escalation_bridge.startsWith("disabled") },
+        { label: "Phone approvals", value: data.escalation_bridge, ok: !data.escalation_bridge.startsWith("disabled") },
         { label: "Knowledge", value: data.knowledge, ok: data.knowledge_available },
-        { label: "Briefing", value: data.summariser, ok: !data.summariser.includes("disabled") },
+        { label: "Briefings", value: data.summariser.includes("disabled") ? "Off" : "Ready", ok: !data.summariser.includes("disabled") },
         { label: "Consent", value: CONSENT_LABEL[data.consent_mode] ?? data.consent_mode, ok: data.consent_mode !== "notify_only" },
         {
           label: "Plan",
           value: `${data.plan} · ${Math.round(Math.max(0, ...Object.values(data.usage_fractions)) * 100)}% of this month used`,
           ok: !data.quota_blocked,
         },
-        { label: "Version", value: `API ${data.version}`, ok: true },
+        { label: "Version", value: data.version, ok: true },
       ]
     : [];
   const done = rows.filter((r) => r.ok).length;

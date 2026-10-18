@@ -1,0 +1,5 @@
+# Builds the web image with the API URL baked in (Next.js inlines NEXT_PUBLIC_*).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}", "--build-arg", "NEXT_PUBLIC_API_URL=${_API_URL}", "."]
+images: ["${_IMAGE}"]

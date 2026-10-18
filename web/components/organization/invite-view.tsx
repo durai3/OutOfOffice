@@ -50,7 +50,7 @@ export function InviteView({ token }: { token: string }) {
     return (
       <AuthLayout title="Invite not found" subtitle="This link is invalid, expired, or has already been used.">
         <Button className="w-full" onClick={() => router.push("/")}>
-          Go to DELEG8
+          Go to Out of Office
         </Button>
       </AuthLayout>
     );

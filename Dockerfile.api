@@ -1,0 +1,45 @@
+# DELEG8 control plane (FastAPI) for Cloud Run.
+#
+# Build:  docker build -f Dockerfile.api -t deleg8-api .
+# The meeting worker image is docker/Dockerfile; this one never joins a call.
+# On Cloud Run there is no Docker daemon, so DELEG8_DISPATCH_MODE=inprocess and
+# live meetings are exercised through the in-browser Playground instead.
+
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/opt/hf \
+    SENTENCE_TRANSFORMERS_HOME=/opt/hf \
+    ANONYMIZED_TELEMETRY=False \
+    CHROMA_TELEMETRY=False
+
+# build-essential + portaudio19-dev: requirements.txt lists pyaudio/sounddevice,
+# which compile against PortAudio even though this image never opens a device.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential portaudio19-dev libportaudio2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+# CPU-only torch first: the default wheel drags in ~2 GB of CUDA libraries.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install -r requirements.txt
+
+# Bake the embedding model in so a cold start does not download 90 MB.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+COPY src ./src
+COPY demo ./demo
+COPY legal ./legal
+COPY scripts ./scripts
+
+RUN useradd --create-home app && mkdir -p /app/data && chown -R app /app/data /opt/hf
+USER app
+
+ENV DELEG8_ENV=production \
+    DELEG8_DISPATCH_MODE=inprocess \
+    DELEG8_HOST=0.0.0.0
+
+# Cloud Run injects $PORT.
+CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info"]

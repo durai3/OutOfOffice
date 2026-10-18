@@ -109,6 +109,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 .scroll-thin {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent) transparent;
@@ -144,4 +157,29 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot, .speak-bar, .fade-in { animation: none; }
+}
+
+/* The Playground phone buzzes while an approval is waiting on it. */
+@keyframes deleg8-buzz {
+  0%, 62%, 100% { transform: translateX(0) rotate(0); }
+  66% { transform: translateX(-3px) rotate(-0.6deg); }
+  70% { transform: translateX(3px) rotate(0.6deg); }
+  74% { transform: translateX(-3px) rotate(-0.6deg); }
+  78% { transform: translateX(3px) rotate(0.6deg); }
+  82% { transform: translateX(-2px) rotate(-0.3deg); }
+  86% { transform: translateX(0) rotate(0); }
+}
+.deleg8-buzz { animation: deleg8-buzz 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .deleg8-buzz { animation: none; }
+}
+
+/* "It's time to press this": a soft ring that breathes, used on End & brief me. */
+@keyframes deleg8-nudge {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 55%, transparent); }
+  50% { transform: scale(1.04); box-shadow: 0 0 0 9px color-mix(in oklch, var(--primary) 0%, transparent); }
+}
+.deleg8-nudge { animation: deleg8-nudge 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .deleg8-nudge { animation: none; }
 }

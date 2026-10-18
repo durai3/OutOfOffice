@@ -8,7 +8,7 @@ type Size = "sm" | "md" | "lg" | "icon";
 const variants: Record<Variant, string> = {
   default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
   secondary: "bg-muted text-foreground hover:bg-accent",
-  outline: "border border-border bg-card text-foreground hover:bg-accent",
+  outline: "border border-border bg-transparent text-foreground hover:bg-accent",
   ghost: "text-foreground hover:bg-accent",
   destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm",
   link: "text-info underline-offset-4 hover:underline px-0 h-auto",
@@ -30,7 +30,7 @@ export interface ButtonProps extends React.ComponentProps<"button"> {
 /** Class list for a button-looking element (use on <Link> or <a>). */
 export function buttonVariants({ variant = "default", size = "md", className }: { variant?: Variant; size?: Size; className?: string } = {}): string {
   return cn(
-    "inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-colors",
+    "inline-flex items-center justify-center whitespace-nowrap rounded-lg font-medium transition-[background-color,border-color,filter,transform] active:translate-y-px",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "disabled:pointer-events-none disabled:opacity-50",
     variants[variant],

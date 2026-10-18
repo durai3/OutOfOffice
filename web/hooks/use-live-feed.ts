@@ -387,7 +387,7 @@ function applyEvent(state: LiveState, event: LiveEvent): LiveState {
             ...turns,
             {
               id: `${event.seq}-bot`,
-              speaker: "DELEG8",
+              speaker: "Out of Office",
               text: response,
               at: event.at,
               isDelegate: true,

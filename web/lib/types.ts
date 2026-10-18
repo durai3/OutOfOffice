@@ -923,3 +923,105 @@ export interface RecentMeeting {
   stop_reason: string | null;
   container: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Playground: a whole meeting from the browser, no microphone or phone needed
+// ---------------------------------------------------------------------------
+
+export interface ScenarioTurn {
+  speaker: string;
+  text: string;
+  /** What a correct delegate does at this line; shown beside it. */
+  expect: string;
+}
+
+export interface Scenario {
+  key: string;
+  title: string;
+  summary: string;
+  participants: string[];
+  turns: ScenarioTurn[];
+}
+
+export type PlaygroundEventKind =
+  | "system"
+  | "utterance"
+  | "delegate"
+  | "silent"
+  | "approval_requested"
+  | "approval_resolved";
+
+export interface PlaygroundEvent {
+  seq: number;
+  kind: PlaygroundEventKind;
+  at: string;
+  speaker?: string;
+  text?: string;
+  reason?: string;
+  state?: DecisionState;
+  turn_type?: string | null;
+  latency_ms?: number;
+  followup?: boolean;
+  request_id?: string;
+  topic?: string | null;
+  outcome?: string;
+}
+
+export interface PlaygroundChoices {
+  approve: string;
+  reject: string;
+  soften: string;
+}
+
+export interface PlaygroundApproval {
+  request_id: string;
+  topic: string | null;
+  tier: PolicyTier | null;
+  speaker: string | null;
+  heard: string;
+  proposed: string;
+  reason: string;
+  pending: boolean;
+  outcome: string | null;
+  created_at: string;
+  choices: PlaygroundChoices | null;
+}
+
+export interface PlaygroundSession {
+  meeting_id: string;
+  principal: string;
+  participants: string[];
+  started_at: string;
+  concluded: boolean;
+  /** Which model family is driving the delegate, e.g. "gemini (fast: ..., smart: ...)". */
+  model: string;
+  events: PlaygroundEvent[];
+  approvals: PlaygroundApproval[];
+  commitments: Commitment[];
+  outbox: string[];
+  report: PostMeetingReport | null;
+}
+
+export interface PlaygroundTurnResult {
+  state: DecisionState;
+  response: string | null;
+  decision: PolicyDecision;
+  turn_type: string | null;
+  guard_verdict: string | null;
+  commitment_ids: string[];
+  /** Filled in client-side from the turn response, for the inspector. */
+  latency_ms?: number;
+}
+
+export interface PlaygroundTurnOut {
+  result: PlaygroundTurnResult;
+  latency_ms: number;
+  session: PlaygroundSession;
+}
+
+export interface SampleDataResult {
+  loaded: string[];
+  skipped: string[];
+  dossier: string;
+  index_size: number;
+}

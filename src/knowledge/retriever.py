@@ -30,7 +30,7 @@ sentence(s), which are then checked programmatically
 trusted. :class:`DocumentKnowledge` prefers the synthesiser when available and
 falls back to the extractive composer - on a missing key, a declined answer,
 an unverified citation, or any API failure - so behaviour without a key is
-unchanged. :func:`build_synthesiser` prefers Claude, then Gemini, then the
+unchanged. :func:`build_synthesiser` prefers Gemini, then Claude, then the
 extractive-only fallback, so the same code runs whichever provider you have
 credentials for.
 
@@ -67,6 +67,7 @@ from src.knowledge.config import KnowledgeSettings
 from src.knowledge.grounding import verify_citations
 from src.knowledge.ingest import IngestError, load_document
 from src.knowledge.store import KnowledgeStore
+from src.llm import choose_provider
 
 logger = logging.getLogger("deleg8.knowledge.retriever")
 
@@ -107,7 +108,9 @@ class RetrievedChunk(BaseModel):
     title: str
     section: str
     page: int | None = None
-    similarity: float = Field(..., description="Cosine similarity to the query (1 - distance), clamped to [-1, 1].")
+    similarity: float = Field(
+        ..., description="Cosine similarity to the query (1 - distance), plus a bounded term-overlap bonus."
+    )
 
     @property
     def body(self) -> str:
@@ -145,6 +148,48 @@ class RetrievalResult(BaseModel):
         return [chunk.citation for chunk in self.chunks]
 
 
+_CANDIDATE_POOL: int = 16
+"""Passages fetched from the vector index before reranking down to ``top_k``."""
+_LEXICAL_WEIGHT: float = 0.20
+"""Largest bonus the term-overlap reranker can add to a cosine similarity."""
+
+
+def _hybrid_similarity(chunk: RetrievedChunk, query_terms: set[str]) -> float:
+    """Cosine similarity plus a bonus for the question's own words appearing in the passage.
+
+    Dense retrieval answers "is this about the same thing", and is weak at "does
+    this contain the specific word asked about". Adding a bounded lexical term
+    (the share of the question's content words found in the passage, section
+    heading included) is the standard cheap hybrid. The bonus needs at least one
+    matching term, and scales with how much of the question is covered, so a
+    passage that merely shares a stopword with the query gains nothing - and an
+    unrelated question still falls below the gate.
+    """
+    if not query_terms:
+        return chunk.similarity
+    overlap = len(query_terms & _terms(f"{chunk.section} {chunk.text}")) / len(query_terms)
+    return min(1.0, chunk.similarity + _LEXICAL_WEIGHT * overlap)
+
+
+_CLAUSE_SPLIT = re.compile(r"\s*(?:[?;]|,|\band\b|\balso\b|\bplus\b|\bas well as\b)\s*", re.IGNORECASE)
+_MAX_SUBQUERIES: int = 3
+_MIN_CLAUSE_TERMS: int = 1
+
+
+def split_compound_query(query: str) -> list[str]:
+    """The sub-questions inside a compound one, or ``[]`` when it is a single question.
+
+    "What database does Atlas run on, and what is the median load time?" is two
+    questions, and one embedding of the whole sentence lands between them and
+    retrieves neither well. Each clause is kept only if it carries a content word
+    of its own ("and what" does not), and at most :data:`_MAX_SUBQUERIES` are used
+    so a rambling utterance cannot multiply the retrieval cost.
+    """
+    parts = [part.strip() for part in _CLAUSE_SPLIT.split(query) if part and part.strip()]
+    clauses = [part for part in parts if len(_terms(part)) >= _MIN_CLAUSE_TERMS]
+    return clauses[:_MAX_SUBQUERIES] if len(clauses) >= 2 else []
+
+
 class KnowledgeRetriever:
     """Semantic search over the store with a similarity gate."""
 
@@ -177,20 +222,34 @@ class KnowledgeRetriever:
                     query=query, status=RetrievalStatus.UNKNOWN_CONTEXT, threshold=threshold,
                     index_size=size, elapsed_ms=round((time.monotonic() - started) * 1000, 2),
                 )
-            raw = collection.query(
-                query_texts=[query], n_results=min(k, size), include=["documents", "metadatas", "distances"]
-            )
-        ids = raw["ids"][0]
-        documents = (raw.get("documents") or [[]])[0]
-        metadatas = (raw.get("metadatas") or [[]])[0]
-        distances = (raw.get("distances") or [[]])[0]
+            # Over-fetch, then rerank: a 90 MB embedding model blurs short factual
+            # chunks ("Primary database: PostgreSQL 16") behind longer prose that
+            # merely mentions the same product, and top-k alone then drops the one
+            # chunk that holds the answer. The pool is cheap to widen (CPU, in
+            # memory); the reranker below puts exact-term evidence back in front.
+            variants = [query, *split_compound_query(query)]
+            raws = [
+                collection.query(
+                    query_texts=[variant], n_results=min(max(k * 4, _CANDIDATE_POOL), size),
+                    include=["documents", "metadatas", "distances"],
+                )
+                for variant in variants
+            ]
 
-        candidates: list[RetrievedChunk] = []
-        for chunk_id, text, meta, distance in zip(ids, documents, metadatas, distances):
-            meta = meta or {}
-            page = meta.get("page")
-            candidates.append(
-                RetrievedChunk(
+        # Score every candidate against the question that surfaced it and keep its
+        # best score, so a passage that answers one half of a compound question is
+        # not outranked by passages that merely resemble the whole sentence.
+        best: dict[str, RetrievedChunk] = {}
+        for variant, raw in zip(variants, raws):
+            variant_terms = _terms(variant)
+            ids = raw["ids"][0]
+            documents = (raw.get("documents") or [[]])[0]
+            metadatas = (raw.get("metadatas") or [[]])[0]
+            distances = (raw.get("distances") or [[]])[0]
+            for chunk_id, text, meta, distance in zip(ids, documents, metadatas, distances):
+                meta = meta or {}
+                page = meta.get("page")
+                chunk = RetrievedChunk(
                     chunk_id=chunk_id,
                     text=text or "",
                     source=str(meta.get("source", "unknown")),
@@ -199,8 +258,14 @@ class KnowledgeRetriever:
                     page=int(page) if isinstance(page, (int, float)) else None,
                     similarity=cosine_similarity(distance),
                 )
-            )
-        candidates.sort(key=lambda c: c.similarity, reverse=True)
+                chunk = chunk.model_copy(update={"similarity": _hybrid_similarity(chunk, variant_terms)})
+                held = best.get(chunk_id)
+                if held is None or chunk.similarity > held.similarity:
+                    best[chunk_id] = chunk
+        candidates = sorted(best.values(), key=lambda c: c.similarity, reverse=True)
+        # A compound question earns one extra slot per extra clause: it is asking
+        # for more than one thing, and top-k was sized for one.
+        candidates = candidates[: k + max(0, len(variants) - 1)]
         best = candidates[0].similarity if candidates else None
         kept = [c for c in candidates if c.similarity >= threshold]
         status = RetrievalStatus.GROUNDED if kept else RetrievalStatus.UNKNOWN_CONTEXT
@@ -611,17 +676,21 @@ class GeminiAnswerSynthesiser:
 
 
 def build_synthesiser(model: str | None = None) -> AnswerSynthesiser | None:
-    """Claude when ``ANTHROPIC_API_KEY`` is set; else Gemini when ``GEMINI_API_KEY`` is set;
-    else ``None`` (extractive composer only)."""
-    if os.getenv("ANTHROPIC_API_KEY", "").strip():
-        chosen = model or os.getenv("DELEG8_ANSWER_MODEL", "").strip() or DEFAULT_ANSWER_MODEL
-        logger.info("answer synthesiser: claude (%s)", chosen)
-        return ClaudeAnswerSynthesiser(chosen)
-    if os.getenv("GEMINI_API_KEY", "").strip():
+    """Gemini when ``GEMINI_API_KEY`` is set (the default); else Claude when ``ANTHROPIC_API_KEY``
+    is set; else ``None`` (extractive composer only). See :func:`src.llm.choose_provider`."""
+    provider = choose_provider(
+        claude=bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
+        gemini=bool(os.getenv("GEMINI_API_KEY", "").strip()),
+    )
+    if provider == "gemini":
         chosen = model or os.getenv("DELEG8_GEMINI_ANSWER_MODEL", "").strip() or DEFAULT_GEMINI_ANSWER_MODEL
         logger.info("answer synthesiser: gemini (%s)", chosen)
         return GeminiAnswerSynthesiser(chosen)
-    logger.info("answer synthesiser: none (no ANTHROPIC_API_KEY or GEMINI_API_KEY); extractive composer only")
+    if provider == "claude":
+        chosen = model or os.getenv("DELEG8_ANSWER_MODEL", "").strip() or DEFAULT_ANSWER_MODEL
+        logger.info("answer synthesiser: claude (%s)", chosen)
+        return ClaudeAnswerSynthesiser(chosen)
+    logger.info("answer synthesiser: none (no GEMINI_API_KEY or ANTHROPIC_API_KEY); extractive composer only")
     return None
 
 

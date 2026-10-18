@@ -41,8 +41,8 @@ export function DangerCard() {
           <div className="min-w-0">
             <CardTitle className="text-danger">Delete this account</CardTitle>
             <CardDescription>
-              Removes your policy, dossier, documents, vector index, meeting briefs, commitments, consent records and
-              stored keys. It cannot be undone.
+              Removes your rules, profile, documents, meeting briefs, action items, consent records and
+              saved keys. It cannot be undone.
             </CardDescription>
           </div>
         </div>

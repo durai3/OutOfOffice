@@ -70,17 +70,19 @@ export function delegateHeadline(status: DelegateStatus | null | undefined): { l
 
 const TIER_VARIANT: Record<PolicyTier, BadgeVariant> = { GREEN: "success", YELLOW: "warning", RED: "danger" };
 
+const TIER_LABEL: Record<PolicyTier, string> = { GREEN: "Safe to answer", YELLOW: "Needs your OK", RED: "Never answers" };
+
 export function TierBadge({ tier, className }: { tier: PolicyTier | null | undefined; className?: string }) {
   if (!tier) return null;
   return (
     <Badge variant={TIER_VARIANT[tier]} className={cn("font-semibold", className)}>
-      {tier}
+      {TIER_LABEL[tier]}
     </Badge>
   );
 }
 
 const DECISION_VARIANT: Record<DecisionState, BadgeVariant> = { AUTO_REPLY: "success", ESCALATE: "danger", SILENT: "outline" };
-const DECISION_LABEL: Record<DecisionState, string> = { AUTO_REPLY: "Auto reply", ESCALATE: "Escalated", SILENT: "Silent" };
+const DECISION_LABEL: Record<DecisionState, string> = { AUTO_REPLY: "Answered", ESCALATE: "Asked you", SILENT: "Stayed quiet" };
 
 export function DecisionBadge({ state, className }: { state: DecisionState | null | undefined; className?: string }) {
   if (!state) return null;

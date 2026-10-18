@@ -100,19 +100,28 @@ class ResolvedCredentials:
     def llm_provider(self) -> str | None:
         """Which language model provider will actually be used.
 
-        The user's own key wins over the platform's, and Anthropic wins over
-        Gemini when both are present - the same preference order
+        The user's own key wins over the platform's, and within each tier the
+        provider order is :func:`src.llm.choose_provider`'s (Gemini first unless
+        ``DELEG8_LLM_PROVIDER=claude``) - the same preference
         :func:`src.llm.build_llm` applies, kept in one place so the console can
         state it before a meeting rather than after.
         """
-        for provider in (CredentialProvider.ANTHROPIC.value, CredentialProvider.GEMINI.value):
-            key = self.get(provider)
-            if key.present and key.own_key:
-                return provider
-        for provider in (CredentialProvider.ANTHROPIC.value, CredentialProvider.GEMINI.value):
-            if self.get(provider).present:
-                return provider
-        return None
+        from src.llm import choose_provider
+
+        def pick(*, own_only: bool) -> str | None:
+            def usable(provider: str) -> bool:
+                key = self.get(provider)
+                return key.present and (key.own_key or not own_only)
+
+            chosen = choose_provider(
+                claude=usable(CredentialProvider.ANTHROPIC.value),
+                gemini=usable(CredentialProvider.GEMINI.value),
+            )
+            return {"claude": CredentialProvider.ANTHROPIC.value, "gemini": CredentialProvider.GEMINI.value}.get(
+                chosen or ""
+            )
+
+        return pick(own_only=True) or pick(own_only=False)
 
     @property
     def uses_platform_llm(self) -> bool:

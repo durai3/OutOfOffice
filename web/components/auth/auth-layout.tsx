@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { JudgeEntry } from "@/components/auth/judge-entry";
 import { APP_NAME } from "@/lib/config";
 
 /**
@@ -42,7 +43,7 @@ export function AuthLayout({
               className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-[0_8px_24px_-8px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
               aria-hidden="true"
             >
-              <span className="text-base font-bold leading-none tracking-tight">D8</span>
+              <span className="text-base font-bold leading-none tracking-tight">OO</span>
             </span>
             <div className="leading-tight">
               <div className="text-base font-semibold tracking-tight text-foreground">{APP_NAME}</div>
@@ -52,6 +53,8 @@ export function AuthLayout({
             </div>
           </div>
 
+          <JudgeEntry className="mb-5" />
+
           <div className="rounded-2xl border border-border bg-card p-6 shadow-[0_30px_70px_-25px_rgba(0,0,0,0.7)] sm:p-7">
             <h1 className="text-lg font-semibold tracking-tight text-foreground">{title}</h1>
             <p className="mt-1.5 text-sm text-muted-foreground">{subtitle}</p>
@@ -60,8 +63,15 @@ export function AuthLayout({
 
           {footer ? <div className="mt-5 text-center text-sm text-muted-foreground">{footer}</div> : null}
 
-          <p className="mt-7 text-center text-xs text-muted-foreground">
-            By using DELEG8 you agree to the{" "}
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            Want the tour first?{" "}
+            <Link href="/judges" className="font-medium text-foreground underline underline-offset-2">
+              Read the judge guide
+            </Link>
+          </p>
+
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            By using Out of Office you agree to the{" "}
             <Link href="/legal/terms" className="underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground">
               Terms of Service
             </Link>{" "}

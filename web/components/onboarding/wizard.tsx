@@ -40,7 +40,14 @@ export function OnboardingWizard() {
     try {
       const next = await api.onboarding();
       setState(next);
-      setActive((current) => current ?? next.next_step ?? next.steps[0]?.key ?? null);
+      // Open the first unfinished step on arrival, and move on as soon as the one
+      // being worked on is done - otherwise a finished step stays open and the
+      // next one looks like it has been forgotten.
+      setActive((current) => {
+        const open = next.steps.find((step) => step.key === current);
+        if (current === null || open?.complete) return next.next_step ?? current ?? next.steps[0]?.key ?? null;
+        return current;
+      });
     } catch (err) {
       setError(errorMessage(err));
     }

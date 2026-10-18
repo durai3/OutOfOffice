@@ -391,8 +391,13 @@ def check_build_synthesiser_precedence() -> None:
 
         os.environ["ANTHROPIC_API_KEY"] = "fake-anthropic-key"
         synth = build_synthesiser()
-        _check("both keys set -> Claude wins", isinstance(synth, ClaudeAnswerSynthesiser), repr(synth))
+        _check("both keys set -> Gemini wins (the default)", isinstance(synth, GeminiAnswerSynthesiser), repr(synth))
+
+        os.environ["DELEG8_LLM_PROVIDER"] = "claude"
+        synth = build_synthesiser()
+        _check("DELEG8_LLM_PROVIDER=claude -> Claude", isinstance(synth, ClaudeAnswerSynthesiser), repr(synth))
     finally:
+        os.environ.pop("DELEG8_LLM_PROVIDER", None)
         for key, value in saved.items():
             os.environ.pop(key, None)
             if value is not None:

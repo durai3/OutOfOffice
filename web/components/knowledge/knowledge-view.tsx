@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTechDetails } from "@/lib/tech-details";
 import { AlertTriangle, Database, FileText, FolderSync, Layers, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import type { ChunkPage, FileIngestResult, IndexedDocument, KnowledgeOverview, RetrievalResult } from "@/lib/types";
@@ -9,7 +10,7 @@ import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/components/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Eyebrow } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ import { PageHeader } from "@/components/page-header";
 export function KnowledgeView() {
   const overview = useApi<KnowledgeOverview>(api.knowledge, { refreshMs: 20_000 });
   const data = overview.data;
+  const [tech] = useTechDetails();
   const [chunksFor, setChunksFor] = React.useState<IndexedDocument | null>(null);
   const [removing, setRemoving] = React.useState<IndexedDocument | null>(null);
   const toast = useToast();
@@ -29,7 +31,7 @@ export function KnowledgeView() {
     <>
       <PageHeader
         title="Knowledge Base"
-        description="Documents the delegate may quote from. Every answer is lifted verbatim from a passage that clears the similarity threshold."
+        description="The documents your delegate may answer from. It only says what it can find in them."
         actions={
           <Button variant="outline" size="sm" onClick={() => void overview.refresh()}>
             <RefreshCw className="size-3.5" /> Refresh
@@ -39,9 +41,11 @@ export function KnowledgeView() {
 
       {overview.error && !data ? <div className="mb-4 rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm text-danger">{overview.error}</div> : null}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <HealthCard data={data} />
-        <div className="lg:col-span-2">
+      <StatStrip data={data} tech={tech} />
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        {tech ? <HealthCard data={data} /> : null}
+        <div className={tech ? "lg:col-span-2" : "lg:col-span-3"}>
           <UploadCard data={data} onDone={() => void overview.refresh()} />
         </div>
       </div>
@@ -50,7 +54,7 @@ export function KnowledgeView() {
         <div className="lg:col-span-2">
           <DocumentsCard data={data} onChunks={setChunksFor} onRemove={setRemoving} onChanged={() => void overview.refresh()} />
         </div>
-        <RetrievalTester data={data} />
+        <RetrievalTester data={data} tech={tech} />
       </div>
 
       <ChunksDialog document={chunksFor} onClose={() => setChunksFor(null)} />
@@ -128,6 +132,56 @@ function HealthCard({ data }: { data: KnowledgeOverview | undefined }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function StatStrip({ data, tech }: { data: KnowledgeOverview | undefined; tech: boolean }) {
+  const threshold = data?.min_similarity ?? 0;
+  const pct = Math.round(Math.min(1, Math.max(0, threshold)) * 100);
+  return (
+    <div className="flex flex-wrap gap-3.5">
+      <Card className="flex-1 basis-36 px-[18px] py-4">
+        <Eyebrow>Documents</Eyebrow>
+        <div className="tabular mt-2 font-mono text-3xl font-medium leading-tight">{data ? data.documents.length : "–"}</div>
+      </Card>
+      {!tech ? (
+        <Card className="flex-1 basis-36 px-[18px] py-4">
+          <Eyebrow>Status</Eyebrow>
+          <div className="mt-3">
+            {data ? (
+              data.available ? <Badge variant="success" dot>Ready to answer</Badge> : <Badge variant="danger" dot>Not available</Badge>
+            ) : (
+              "–"
+            )}
+          </div>
+        </Card>
+      ) : null}
+      {tech ? (
+      <>
+      <Card className="flex-1 basis-36 px-[18px] py-4">
+        <Eyebrow>Chunks</Eyebrow>
+        <div className="tabular mt-2 font-mono text-3xl font-medium leading-tight">{data ? data.index_size : "–"}</div>
+      </Card>
+      <Card className="flex-[2_1_300px] px-[18px] py-4">
+        <div className="flex items-center justify-between">
+          <Eyebrow>Similarity threshold</Eyebrow>
+          <span className="font-mono text-[13px] font-medium">{data ? threshold.toFixed(2) : "–"}</span>
+        </div>
+        <div className="relative mt-4 h-[30px]" aria-hidden="true">
+          <div className="absolute inset-x-0 top-3 h-1.5 rounded-sm bg-[linear-gradient(to_right,color-mix(in_oklch,var(--danger)_25%,transparent),color-mix(in_oklch,var(--warning)_25%,transparent)_60%,color-mix(in_oklch,var(--success)_25%,transparent))]" />
+          <div className="absolute right-0 top-3 h-1.5 rounded-r-sm bg-success/55" style={{ left: `${pct}%` }} />
+          <div className="absolute top-[5px] h-5 w-0.5 bg-primary" style={{ left: `${pct}%` }} />
+          <div className="absolute -top-0.5 size-2.5 -translate-x-1/2 rounded-full bg-primary" style={{ left: `${pct}%` }} />
+        </div>
+        <div className="mt-0.5 flex justify-between font-mono text-[10.5px] text-muted-foreground">
+          <span>0.0 no match</span>
+          <span>answers quote only above this</span>
+          <span>1.0</span>
+        </div>
+      </Card>
+      </>
+      ) : null}
+    </div>
   );
 }
 
@@ -398,7 +452,7 @@ function ChunksDialog({ document: doc, onClose }: { document: IndexedDocument | 
   );
 }
 
-function RetrievalTester({ data }: { data: KnowledgeOverview | undefined }) {
+function RetrievalTester({ data, tech }: { data: KnowledgeOverview | undefined; tech: boolean }) {
   const [query, setQuery] = React.useState("");
   const [result, setResult] = React.useState<RetrievalResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -425,9 +479,9 @@ function RetrievalTester({ data }: { data: KnowledgeOverview | undefined }) {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2">
-          <Search className="size-4 text-muted-foreground" /> Test retrieval
+          <Search className="size-4 text-muted-foreground" /> {tech ? "Test retrieval" : "Try a question"}
         </CardTitle>
-        <CardDescription>Ask what a participant might ask and see whether the similarity gate would let the delegate answer.</CardDescription>
+        <CardDescription>{tech ? "Ask what a participant might ask and see whether the similarity gate would let the delegate answer." : "Ask what someone might ask in a meeting and see whether your documents can answer it."}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <form onSubmit={run} className="flex gap-2">
@@ -438,9 +492,10 @@ function RetrievalTester({ data }: { data: KnowledgeOverview | undefined }) {
         {result ? (
           <div className="flex flex-col gap-3 fade-in">
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant={result.grounded ? "success" : "outline"}>{result.status.replace("_", " ")}</Badge>
-              <span className="text-muted-foreground">{result.chunks.length} of top {data?.top_k ?? "?"} cleared · {result.elapsed_ms.toFixed(0)} ms</span>
+              <Badge variant={result.grounded ? "success" : "outline"}>{tech ? result.status.replace("_", " ") : result.grounded ? "Found in your documents" : "Not in your documents"}</Badge>
+              {tech ? <span className="text-muted-foreground">{result.chunks.length} of top {data?.top_k ?? "?"} cleared · {result.elapsed_ms.toFixed(0)} ms</span> : null}
             </div>
+            {tech ? (
             <div>
               <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
                 <span>best similarity {best !== null ? best.toFixed(3) : "—"}</span>
@@ -451,13 +506,14 @@ function RetrievalTester({ data }: { data: KnowledgeOverview | undefined }) {
                 <div className="absolute top-0 h-full w-px bg-foreground/60" style={{ left: `${threshold * 100}%` }} aria-hidden="true" />
               </div>
             </div>
+            ) : null}
             {result.chunks.length ? (
               <ul className="flex flex-col gap-2">
                 {result.chunks.map((chunk) => (
                   <li key={chunk.chunk_id} className="rounded-md border border-border p-2.5 text-xs">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium" title={chunk.section}>{chunk.section || chunk.title}</span>
-                      <span className="tabular shrink-0 text-muted-foreground">{chunk.similarity.toFixed(3)}</span>
+                      {tech ? <span className="tabular shrink-0 text-muted-foreground">{chunk.similarity.toFixed(3)}</span> : null}
                     </div>
                     <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-muted-foreground">{chunk.text.split("\n").slice(1).join("\n") || chunk.text}</p>
                     <p className="mt-1 font-mono text-[10px] text-muted-foreground">{chunk.source}{chunk.page !== null ? ` · p. ${chunk.page}` : ""}</p>

@@ -41,7 +41,7 @@ export function DossierView() {
       await api.saveDossier(draft);
       setDraft(null);
       await dossier.refresh();
-      toast.push({ title: "Dossier saved", description: "Your edit is now what the delegate will say." });
+      toast.push({ title: "Saved", description: "Your edit is now what the delegate will say." });
     } catch (error) {
       toast.push({ title: "Could not save", description: errorMessage(error), variant: "error" });
     } finally {
@@ -56,7 +56,7 @@ export function DossierView() {
       setDraft(null);
       await dossier.refresh();
       toast.push({
-        title: "Dossier rebuilt",
+        title: "Profile refreshed",
         description: `Recompiled from ${next.sources.length} document${next.sources.length === 1 ? "" : "s"}.`,
       });
     } catch (error) {
@@ -91,7 +91,7 @@ export function DossierView() {
       {dossier.error ? (
         <EmptyState
           icon={<FileText />}
-          title="Could not load the dossier"
+          title="Could not load your profile"
           description={dossier.error}
           action={<Button size="sm" onClick={() => void dossier.refresh()}>Try again</Button>}
         />
@@ -100,12 +100,12 @@ export function DossierView() {
       {data && !data.markdown.trim() ? (
         <EmptyState
           icon={<FileText />}
-          title="No dossier compiled yet"
-          description="Upload your CV, transcripts and cover letters on the Knowledge page, then compile them into the single document the delegate speaks from."
+          title="Your profile is empty"
+          description="Add your CV, notes or project documents on the Knowledge page, then build the summary your delegate speaks from."
           action={
             <Button size="sm" onClick={rebuild} disabled={busy !== null}>
               <Sparkles className="size-3.5" />
-              {busy === "rebuild" ? "Compiling…" : "Compile from documents"}
+              {busy === "rebuild" ? "Building…" : "Build from my documents"}
             </Button>
           }
         />

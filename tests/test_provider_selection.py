@@ -77,6 +77,23 @@ def _with_keys(anthropic_key: str | None, gemini_key: str | None):
     return _Ctx()
 
 
+def _with_env(name: str, value: str):
+    """Context manager: set one env var, restore it after."""
+
+    class _Ctx:
+        def __enter__(self) -> None:
+            self._saved = os.environ.get(name)
+            os.environ[name] = value
+
+        def __exit__(self, *_exc: object) -> None:
+            if self._saved is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = self._saved
+
+    return _Ctx()
+
+
 def check_build_llm_precedence() -> None:
     """Provider selection now lives in one place (src/llm.py) instead of once per component.
 
@@ -92,7 +109,16 @@ def check_build_llm_precedence() -> None:
         _check("Gemini key only -> GeminiLlm", isinstance(client, GeminiLlm), repr(client))
     with _with_keys("fake-anthropic-key", "fake-gemini-key"):
         client = build_llm()
-        _check("both keys -> Claude wins", isinstance(client, AnthropicLlm), repr(client))
+        _check("both keys -> Gemini wins (the default)", isinstance(client, GeminiLlm), repr(client))
+    with _with_keys("fake-anthropic-key", None):
+        client = build_llm()
+        _check("Anthropic key only -> AnthropicLlm", isinstance(client, AnthropicLlm), repr(client))
+    with _with_keys("fake-anthropic-key", "fake-gemini-key"), _with_env("DELEG8_LLM_PROVIDER", "claude"):
+        client = build_llm()
+        _check("DELEG8_LLM_PROVIDER=claude flips the preference", isinstance(client, AnthropicLlm), repr(client))
+    with _with_keys(None, "fake-gemini-key"), _with_env("DELEG8_LLM_PROVIDER", "claude"):
+        client = build_llm()
+        _check("preferred provider without a key yields to the one that has one", isinstance(client, GeminiLlm), repr(client))
 
     with _with_keys(None, "fake-gemini-key"):
         client = build_llm()
@@ -116,7 +142,7 @@ def check_build_summariser_precedence() -> None:
         _check("Gemini key only -> LlmSummariser", isinstance(summariser, LlmSummariser), repr(summariser))
     with _with_keys("fake-anthropic-key", "fake-gemini-key"):
         summariser = build_summariser()
-        _check("both keys -> LlmSummariser (Claude underneath)", isinstance(summariser, LlmSummariser), repr(summariser))
+        _check("both keys -> LlmSummariser (Gemini underneath)", isinstance(summariser, LlmSummariser) and summariser.describe().startswith("gemini"), repr(summariser.describe()))
 
 
 def check_build_intent_classifier_precedence() -> None:
@@ -128,7 +154,10 @@ def check_build_intent_classifier_precedence() -> None:
         _check("Gemini key only -> GeminiIntentClassifier", isinstance(classifier, GeminiIntentClassifier), repr(classifier))
     with _with_keys("fake-anthropic-key", "fake-gemini-key"):
         classifier = build_intent_classifier()
-        _check("both keys -> Claude wins", isinstance(classifier, ClaudeIntentClassifier), repr(classifier))
+        _check("both keys -> Gemini wins (the default)", isinstance(classifier, GeminiIntentClassifier), repr(classifier))
+    with _with_keys("fake-anthropic-key", "fake-gemini-key"), _with_env("DELEG8_LLM_PROVIDER", "claude"):
+        classifier = build_intent_classifier()
+        _check("DELEG8_LLM_PROVIDER=claude -> Claude", isinstance(classifier, ClaudeIntentClassifier), repr(classifier))
 
 
 _SOURCE_TEXT: str = (

@@ -108,6 +108,15 @@ PLANS: dict[str, Quota] = {
         max_concurrent_meetings=2,
         max_meeting_minutes=120.0,
     ),
+    "demo": Quota(
+        name="Judge demo",
+        llm_tokens=300_000,
+        stt_seconds=0.0,
+        tts_characters=0,
+        meetings=12,
+        max_concurrent_meetings=1,
+        max_meeting_minutes=30.0,
+    ),
     "unlimited": Quota(
         name="Own keys",
         llm_tokens=0,

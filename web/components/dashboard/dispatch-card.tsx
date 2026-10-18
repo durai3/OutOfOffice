@@ -112,7 +112,7 @@ export function DispatchCard({ status, onChanged }: { status: DelegateStatus | u
                 <Rocket className="size-4 text-white/60" /> Dispatch Delegate
               </CardTitle>
               <CardDescription className="mt-1 max-w-md text-white/55">
-                Send DELEG8 into a Google Meet, Zoom, or Microsoft Teams call. It joins with the camera off, listens,
+                Send Out of Office into a Google Meet, Zoom, or Microsoft Teams call. It joins with the camera off, listens,
                 answers within policy, and escalates the rest to Telegram.
               </CardDescription>
             </div>

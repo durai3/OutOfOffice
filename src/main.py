@@ -60,6 +60,7 @@ from src.api.integrations import router as integrations_router
 from src.api.legal import router as legal_router
 from src.api.onboarding import router as onboarding_router
 from src.api.organizations import router as organizations_router
+from src.api.playground import router as playground_router
 from src.api.routes import router as console_router
 from src.api.search import router as search_router
 from src.api.settings import router as settings_router
@@ -292,6 +293,7 @@ app.include_router(search_router)
 app.include_router(commitments_tracker_router)
 app.include_router(analytics_router)
 app.include_router(organizations_router)
+app.include_router(playground_router)
 app.include_router(console_router)
 
 

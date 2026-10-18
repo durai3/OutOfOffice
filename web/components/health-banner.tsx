@@ -63,8 +63,8 @@ export function HealthBanner({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
             {blocking
-              ? "The delegate has no working language model."
-              : "The delegate is running in a fallback mode."}
+              ? "Your delegate can't think right now, so it won't answer in meetings."
+              : "Your delegate is running with reduced abilities."}
           </p>
           <ul className="mt-1.5 space-y-1">
             {health.degradations.map((item) => (

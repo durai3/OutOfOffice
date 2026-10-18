@@ -2,6 +2,7 @@
 ``/api/v1/auth`` - signup, sign-in, token refresh, account maintenance.
 
     POST   /api/v1/auth/signup                     create an account (installs a principal, policy, legal record)
+    POST   /api/v1/auth/demo                       one-click throwaway account for evaluators (DELEG8_DEMO_ENABLED)
     POST   /api/v1/auth/login                       exchange credentials for a token pair
     GET    /api/v1/auth/oauth/{provider}/start      begin "Continue with Google/Microsoft"; returns the consent URL
     GET    /api/v1/auth/oauth/{provider}/callback   the provider redirects the browser here; not session-authed
@@ -59,6 +60,7 @@ from src.auth.service import (
     delete_account,
     issue_tokens,
     provision_account,
+    provision_demo_account,
     provision_or_link_oauth_account,
     rotate_refresh_token,
     sign_out,
@@ -128,6 +130,65 @@ def signup(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     access, refresh, expires = issue_tokens(session, user, user_agent=request.headers.get("user-agent"))
     logger.info("new account: %s", user.email)
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=expires,
+        account=account_response(session, user),
+    )
+
+
+_DEMO_HITS: dict[str, list[float]] = {}
+"""Recent demo-account creations per client address, for a crude hourly cap."""
+
+
+def _demo_enabled() -> bool:
+    return os.environ.get("DELEG8_DEMO_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _demo_allowed(ip: str | None) -> bool:
+    """At most ``DELEG8_DEMO_PER_IP_HOUR`` (default 30) guest accounts per address per hour.
+
+    In-memory and per process, which is the right size for this: it stops a
+    loop from filling the database, not a determined attacker, and a restart
+    forgiving everyone is harmless.
+    """
+    import time
+
+    limit = int(os.environ.get("DELEG8_DEMO_PER_IP_HOUR", "30") or 30)
+    now = time.monotonic()
+    key = ip or "unknown"
+    hits = [t for t in _DEMO_HITS.get(key, []) if now - t < 3600]
+    if len(hits) >= limit:
+        _DEMO_HITS[key] = hits
+        return False
+    hits.append(now)
+    _DEMO_HITS[key] = hits
+    if len(_DEMO_HITS) > 5000:  # forget stale addresses
+        for stale in [k for k, v in _DEMO_HITS.items() if not v or now - v[-1] > 3600]:
+            _DEMO_HITS.pop(stale, None)
+    return True
+
+
+@router.post(
+    "/demo",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
+)
+def demo_account(request: Request, session: Annotated[Session, Depends(db_session)]) -> TokenResponse:
+    """Create a throwaway, fully working account and sign it in. For people evaluating the product.
+
+    Switch off with ``DELEG8_DEMO_ENABLED=0``. Ordinary signup is unchanged.
+    """
+    if not _demo_enabled():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "instant demo accounts are switched off on this deployment")
+    ip = _client_ip(request)
+    if not _demo_allowed(ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many demo accounts from this address; try again later")
+    user = provision_demo_account(session, ip_address=ip, user_agent=request.headers.get("user-agent"))
+    access, refresh, expires = issue_tokens(session, user, user_agent=request.headers.get("user-agent"))
+    logger.info("demo account: %s", user.email)
     return TokenResponse(
         access_token=access,
         refresh_token=refresh,

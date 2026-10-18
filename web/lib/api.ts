@@ -36,12 +36,16 @@ import type {
   OrganizationInvite,
   OrganizationMember,
   OrganizationSummary,
+  PlaygroundSession,
+  PlaygroundTurnOut,
   PolicyTemplate,
   PostMeetingReport,
   RecentMeeting,
   RemoveDocumentResponse,
   RetrievalResult,
   RoiResponse,
+  SampleDataResult,
+  Scenario,
   SearchResponse,
   SettingsResponse,
   SignupRequest,
@@ -92,6 +96,7 @@ function describeDetail(detail: unknown): string {
 const PUBLIC_PATHS = [
   "/api/v1/auth/login",
   "/api/v1/auth/signup",
+  "/api/v1/auth/demo",
   "/api/v1/auth/refresh",
   "/api/v1/auth/oauth",
   "/api/v1/health",
@@ -121,7 +126,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     response = await send(path, init, isPublic ? null : getAccessToken());
   } catch (error) {
-    throw new ApiError(0, `Cannot reach the DELEG8 API at ${API_BASE}. Is the FastAPI server running?`, error);
+    throw new ApiError(0, `Cannot reach the Out of Office API at ${API_BASE}. Is the FastAPI server running?`, error);
   }
 
   // One silent refresh on a 401, then one retry. A body that has already been
@@ -134,7 +139,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       try {
         response = await send(path, init, refreshed.access);
       } catch (error) {
-        throw new ApiError(0, `Cannot reach the DELEG8 API at ${API_BASE}.`, error);
+        throw new ApiError(0, `Cannot reach the Out of Office API at ${API_BASE}.`, error);
       }
     } else {
       clearTokens();
@@ -177,8 +182,31 @@ export const api = {
     }),
   recentMeetings: (limit = 25) => request<RecentMeeting[]>(`/api/v1/meetings/recent?limit=${limit}`),
 
+  // -- playground ------------------------------------------------------ //
+  playgroundScenarios: () => request<Scenario[]>("/api/v1/playground/scenarios"),
+  playgroundSampleData: () => request<SampleDataResult>("/api/v1/playground/sample-data", { method: "POST" }),
+  playgroundStart: (participants: string[]) =>
+    request<PlaygroundSession>("/api/v1/playground/sessions", { method: "POST", body: json({ participants }) }),
+  playgroundSession: () => request<PlaygroundSession | null>("/api/v1/playground/sessions/current"),
+  playgroundSay: (speaker: string, text: string) =>
+    request<PlaygroundTurnOut>("/api/v1/playground/sessions/current/turns", {
+      method: "POST",
+      body: json({ speaker, text }),
+    }),
+  playgroundResolve: (requestId: string, outcome: "APPROVED" | "REJECTED" | "DECLINED_POLITELY") =>
+    request<PlaygroundSession>(`/api/v1/playground/sessions/current/escalations/${encodeURIComponent(requestId)}`, {
+      method: "POST",
+      body: json({ outcome }),
+    }),
+  playgroundConclude: () =>
+    request<PlaygroundSession>("/api/v1/playground/sessions/current/conclude", { method: "POST" }),
+  playgroundBriefingDoc: () =>
+    request<{ url: string }>("/api/v1/playground/sessions/current/briefing/google-doc", { method: "POST" }),
+  playgroundDiscard: () => request<void>("/api/v1/playground/sessions/current", { method: "DELETE" }),
+
   // -- accounts -------------------------------------------------------- //
   signup: (body: SignupRequest) => request<TokenResponse>("/api/v1/auth/signup", { method: "POST", body: json(body) }),
+  demo: () => request<TokenResponse>("/api/v1/auth/demo", { method: "POST" }),
   login: (email: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", { method: "POST", body: json({ email, password }) }),
   logout: (refreshToken: string) =>

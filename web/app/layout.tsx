@@ -11,8 +11,8 @@ const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 const geistMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
-  title: { default: "DELEG8 Console", template: "%s \u00b7 DELEG8" },
-  description: "Operate your DELEG8 AI meeting delegate: dispatch, monitor, and govern it.",
+  title: { default: "Out of Office Console", template: "%s \u00b7 Out of Office" },
+  description: "Operate your Out of Office AI meeting delegate: dispatch, monitor, and govern it.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

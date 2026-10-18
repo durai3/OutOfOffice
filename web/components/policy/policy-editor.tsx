@@ -110,7 +110,7 @@ export function PolicyEditor() {
       const saved = await api.saveProfile(draft);
       setDraft(saved);
       await remote.refresh();
-      toast.push({ title: "Representation Policy saved", description: `${saved.policy.length} rules, ${saved.knowledge_base.length} grounded facts. Live on the next utterance.`, variant: "success" });
+      toast.push({ title: "Representation Policy saved", description: `${saved.policy.length} rules and ${saved.knowledge_base.length} facts saved. They apply from the next thing said.`, variant: "success" });
     } catch (err) {
       const message = errorMessage(err);
       setSaveError(message);

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Upload } from "lucide-react";
+import { Sparkles, Upload } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -30,13 +30,27 @@ export function DocumentsStep({ onDone }: { onDone: () => Promise<void> | void }
     }
   }
 
+  async function loadSample() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.playgroundSampleData();
+      await knowledge.refresh();
+      await onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const documents = knowledge.data?.documents ?? [];
 
   return (
     <div className="space-y-3 text-sm">
       <p className="text-muted-foreground">
-        A CV, a project brief, notes - anything your delegate should be able to speak from. It is compiled into a
-        dossier you can read and correct, and indexed in a vector collection that only this account can search.
+        A CV, a project brief, notes - anything your delegate should be able to speak from. We turn them into a
+        short profile you can read and correct, and only your account can see them.
       </p>
       <input
         ref={input}
@@ -46,9 +60,18 @@ export function DocumentsStep({ onDone }: { onDone: () => Promise<void> | void }
         className="hidden"
         onChange={(e) => void upload(e.target.files)}
       />
-      <Button onClick={() => input.current?.click()} loading={busy}>
-        <Upload className="size-4" /> Choose files
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => input.current?.click()} loading={busy}>
+          <Upload className="size-4" /> Choose files
+        </Button>
+        <Button variant="outline" onClick={() => void loadSample()} disabled={busy}>
+          <Sparkles className="size-4" /> Use sample data
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Just exploring? Sample data gives your delegate a fictional profile, project and team page to speak from.
+        It takes about ten seconds, and you can delete it any time from the Knowledge page.
+      </p>
       {documents.length ? (
         <ul className="space-y-1 rounded-lg border border-border p-3 text-xs text-muted-foreground">
           {documents.map((doc) => (

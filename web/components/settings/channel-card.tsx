@@ -53,7 +53,7 @@ export function ChannelCard({ settings, onSaved }: { settings: SettingsResponse;
                 <Check className="size-4" aria-hidden="true" />
               </div>
               <p className="min-w-0 flex-1 text-sm text-foreground">
-                Connected {channel.own_bot ? "through your own bot" : `to ${channel.bot_username ? `@${channel.bot_username}` : "the DELEG8 bot"}`}
+                Connected {channel.own_bot ? "through your own bot" : `to ${channel.bot_username ? `@${channel.bot_username}` : "the Out of Office bot"}`}
                 {channel.label ? ` (${channel.label})` : ""}
               </p>
             </div>
@@ -85,7 +85,7 @@ export function ChannelCard({ settings, onSaved }: { settings: SettingsResponse;
               </div>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              Send that to {channel.bot_username ? `@${channel.bot_username}` : "the DELEG8 bot"} in Telegram.
+              Send that to {channel.bot_username ? `@${channel.bot_username}` : "the Out of Office bot"} in Telegram.
             </p>
             <Button
               size="sm"

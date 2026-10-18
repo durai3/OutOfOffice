@@ -314,7 +314,7 @@ function EventRow({ event, onChanged }: { event: CalendarEvent; onChanged: () =>
     try {
       await api.setEventDeleg8(event.id, requested);
       onChanged();
-      if (requested) toast.push({ title: `Deleg8'd "${event.title}"`, variant: "success" });
+      if (requested) toast.push({ title: `Delegated "${event.title}"`, variant: "success" });
     } catch (err) {
       toast.push({ title: "Could not update", description: errorMessage(err), variant: "error" });
     } finally {
@@ -334,7 +334,7 @@ function EventRow({ event, onChanged }: { event: CalendarEvent; onChanged: () =>
             </Badge>
           ) : event.deleg8_requested ? (
             <Badge variant="info">
-              <Send className="size-3" /> Deleg8&apos;d
+              <Send className="size-3" /> Delegated
             </Badge>
           ) : null}
         </div>
@@ -342,12 +342,12 @@ function EventRow({ event, onChanged }: { event: CalendarEvent; onChanged: () =>
       </div>
       {event.delegable ? (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Deleg8 it</span>
+          <span className="text-xs text-muted-foreground">Delegate it</span>
           <Switch
             checked={event.deleg8_requested}
             onCheckedChange={toggle}
             disabled={busy || event.dispatched}
-            aria-label={`Deleg8 ${event.title}`}
+            aria-label={`Delegate ${event.title}`}
           />
         </div>
       ) : (

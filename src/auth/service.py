@@ -129,6 +129,7 @@ def provision_account(
     ip_address: str | None = None,
     user_agent: str | None = None,
     invite_token: str | None = None,
+    allow_admin: bool = True,
 ) -> User:
     """Create a fully usable account, or raise :class:`SignupError`.
 
@@ -136,6 +137,9 @@ def provision_account(
     can see platform-wide usage without a manual database edit - unless this
     signup is redeeming an organization invite, in which case it never is,
     even if it happens to land on an otherwise-empty deployment.
+
+    ``allow_admin=False`` keeps a throwaway demo account from becoming the
+    operator just because it happened to be the first on a fresh deployment.
 
     ``password`` is ``None`` for an SSO-created account (``auth_provider``
     other than ``"local"``); everything from the principal onward is created
@@ -154,7 +158,7 @@ def provision_account(
         if repo.normalise_email(invite.email) != repo.normalise_email(email):
             raise SignupError("this invite was sent to a different email address")
 
-    role = "admin" if invite is None and repo.count_users(session) == 0 else "user"
+    role = "admin" if allow_admin and invite is None and repo.count_users(session) == 0 else "user"
     try:
         user = repo.create_user(
             session,
@@ -413,3 +417,38 @@ def sign_out(session: Session, refresh_token: str | None) -> bool:
 def delete_account(session: Session, user_id: uuid.UUID) -> bool:
     """Erase an account and every row that cascades from it."""
     return repo.delete_user(session, user_id)
+
+
+DEMO_EMAIL_DOMAIN = "demo.deleg8.invalid"
+"""``.invalid`` is reserved (RFC 2606), so a demo address can never receive or collide with real mail."""
+
+
+def provision_demo_account(
+    session: Session, *, ip_address: str | None = None, user_agent: str | None = None
+) -> User:
+    """A throwaway account for someone evaluating the product, ready to use at once.
+
+    It is a real account in every respect - its own principal, policy, private
+    index and ledger - so what the evaluator sees is what a customer would see.
+    Differences: nobody knows its password (the session token is the only way
+    in), onboarding is already complete, it is never an admin, and it sits on
+    the small ``demo`` plan so a stranger cannot spend the operator's quota.
+    Terms are recorded as accepted because the button that creates it says so.
+    """
+    import secrets
+
+    tag = secrets.token_hex(4)
+    user = provision_account(
+        session,
+        email=f"guest-{tag}@{DEMO_EMAIL_DOMAIN}",
+        password=secrets.token_urlsafe(24) + "aA1!",
+        display_name="Alex Morgan",
+        ip_address=ip_address,
+        user_agent=user_agent,
+        allow_admin=False,
+    )
+    # "documents" is marked done too: the playground loads the sample files itself, and an
+    # evaluator must not be sent through the wizard to get there.
+    repo.set_onboarding(session, user, **{step: True for step in ONBOARDING_STEPS})
+    repo.update_settings(session, user, plan="demo", demo=True)
+    return user

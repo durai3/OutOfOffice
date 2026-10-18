@@ -439,7 +439,7 @@ function SpeakingBars() {
 
 function NowPanel({ status, state }: { status: DelegateStatus | null; state: LiveState }) {
   const speaking = status?.activity === "SPEAKING";
-  const speaker = speaking ? "DELEG8" : state.interim ? state.interimSpeaker ?? status?.speaker_label ?? "Meeting" : status?.current_speaker ?? (state.turns.length ? state.turns[state.turns.length - 1].speaker : null);
+  const speaker = speaking ? "Out of Office" : state.interim ? state.interimSpeaker ?? status?.speaker_label ?? "Meeting" : status?.current_speaker ?? (state.turns.length ? state.turns[state.turns.length - 1].speaker : null);
   const text = speaking ? status?.speaking_text : state.interim || status?.last_utterance || (state.turns.length ? state.turns[state.turns.length - 1].text : null);
   return (
     <Card>
@@ -488,7 +488,7 @@ function Transcript({ state }: { state: LiveState }) {
       <CardHeader className="flex-row items-center justify-between pb-2">
         <div>
           <CardTitle>Live transcript</CardTitle>
-          <CardDescription>Every utterance with the brain&apos;s verdict; delegate replies highlighted.</CardDescription>
+          <CardDescription>Everything said in the meeting, with what your delegate decided to do about it.</CardDescription>
         </div>
         {!autoScroll ? (
           <Button variant="outline" size="sm" onClick={() => setAutoScroll(true)}>
@@ -505,8 +505,8 @@ function Transcript({ state }: { state: LiveState }) {
               title="Nothing heard yet"
               description={
                 state.audio.inputDevice
-                  ? `Listening on ${state.audio.inputDevice}. Transcript lines appear here as Deepgram finalises them.`
-                  : "Transcript lines appear here as Deepgram finalises them."
+                  ? `Listening on ${state.audio.inputDevice}. Words appear here as people speak.`
+                  : "Words appear here as people speak."
               }
             />
           ) : (
@@ -571,8 +571,7 @@ function TranscriptRow({ line }: { line: TranscriptLine }) {
             <p>{line.reason}</p>
             {line.grounding ? (
               <p className="mt-1">
-                Grounded in {line.grounding.source}: {line.grounding.citations.join(", ") || line.grounding.subject}
-                {line.grounding.similarity !== null ? ` (similarity ${line.grounding.similarity.toFixed(2)})` : ""}
+                Based on: {line.grounding.citations.join(", ") || line.grounding.subject}
               </p>
             ) : null}
             {line.proposedResponse && line.decision === "ESCALATE" ? <p className="mt-1">Proposed to the human: “{line.proposedResponse}”</p> : null}
@@ -740,7 +739,7 @@ function LastBriefing({ state }: { state: LiveState }) {
           <AlertTriangle className="size-4 text-info" /> Executive briefing sent
         </CardTitle>
         <CardDescription>
-          {report.meeting_id} · {report.summariser} · {report.receipt.delivered ? `delivered via ${report.receipt.channel}` : `not delivered (${report.receipt.detail ?? "no channel"})`}
+          {report.receipt.delivered ? "Sent to your phone" : "Could not be sent to your phone"}
         </CardDescription>
       </CardHeader>
       <CardContent className="pb-4 text-sm leading-relaxed">

@@ -50,6 +50,7 @@ from src.brain.models import (
     GroundingSource,
     MeetingContext,
     PolicyDecision,
+    PolicyTier,
     TraceStep,
 )
 from src.brain.planner import (
@@ -63,10 +64,10 @@ from src.brain.planner import (
 )
 from src.brain.policy_engine import PolicyEngine, SensitivityCheck
 from src.brain.profile_store import ProfileStore
-from src.brain.text import normalise
+from src.brain.text import matched_phrases, normalise
 from src.escalation.bridge import EscalationBridge
 from src.escalation.models import EscalationOutcome, EscalationResult
-from src.escalation.responses import final_response
+from src.escalation.responses import final_response, propose_response
 from src.health import COMPONENT_PLANNER, report_degraded, report_healthy
 from src.knowledge.dossier import DossierStore
 from src.knowledge.retriever import KnowledgeRetriever
@@ -109,6 +110,17 @@ def _classify_leave_response(text: str) -> bool | None:
     if _LEAVE_AFFIRM_RE.match(body):
         return True
     return None
+
+_QUESTION_WORDS: tuple[str, ...] = (
+    "what", "why", "who", "when", "where", "which", "how",
+    "can", "could", "would", "will", "do", "does", "did", "is", "are", "shall", "should",
+)
+
+
+def _asks_something(text: str) -> bool:
+    """True when ``text`` reads as a question (a question mark, or a question word)."""
+    return "?" in text or bool(matched_phrases(normalise(text), _QUESTION_WORDS))
+
 
 _HISTORY_TURNS: int = 12
 """Recent utterances handed to the planner. Without this, a follow-up like
@@ -321,6 +333,25 @@ class TurnProcessor:
                 outcome=f"{plan.turn_type.value} (confidence {plan.confidence:.2f}): {plan.reason or 'no reason given'}",
             )
         )
+
+        if plan.turn_type is TurnType.SILENT and floor.addressee and _asks_something(context.transcript):
+            # Being asked something by name is the one case where silence is always
+            # wrong: from the room it is indistinguishable from the delegate having
+            # crashed. The planner is told this, and a small model still sometimes
+            # goes quiet on "Durai, what does everyone think...", so the rule is
+            # enforced here rather than hoped for. The line says nothing about the
+            # principal and asserts no fact, so the guard has nothing to object to.
+            principal = profile.display_name
+            plan = plan.model_copy(
+                update={
+                    "turn_type": TurnType.UNKNOWN,
+                    "reply": f"I'm not sure where I stand on that one - let me check with {principal} and come back to you.",
+                    "states_personal_fact": False,
+                    "supporting_quotes": [],
+                    "reason": f"{plan.reason or 'planner chose silence'} (overridden: addressed by name, so never left unanswered)",
+                }
+            )
+            trace.append(TraceStep(stage="PLANNER", outcome="silence overridden: a question addressed by name always gets an answer"))
 
         sources = f"{dossier}\n\n{documents}"
         guarded = self._components.guard.check(plan, profile=profile, sources=sources)
@@ -535,6 +566,15 @@ class TurnProcessor:
             return None
 
         proposed = guarded.spoken_text or plan.reply or context.transcript
+        if decision.tier in (PolicyTier.RED, PolicyTier.YELLOW):
+            # What the human is asked to approve is the *answer* they would be committing to
+            # ("comfortable moving forward in principle", "we can commit to that"), not the
+            # holding line the delegate has already said aloud. Otherwise "Approve" would just
+            # make it repeat "I can't speak to that" and the approval would mean nothing.
+            try:
+                proposed = propose_response(context, decision, self._store.get_profile(context.user_id))
+            except Exception:  # noqa: BLE001 - keep the holding line rather than lose the escalation
+                logger.warning("could not draft an approvable answer; proposing the holding line", exc_info=True)
         logger.info(
             "escalating meeting=%s topic=%s tier=%s via %s (non-blocking)",
             context.meeting_id, decision.topic, decision.tier.value if decision.tier else None,
@@ -563,7 +603,7 @@ class TurnProcessor:
             if state is not None:
                 state.record_escalation_outcome(context, decision, result)
 
-        if result.outcome in {EscalationOutcome.TIMEOUT, EscalationOutcome.UNAVAILABLE}:
+        if result.outcome in {EscalationOutcome.TIMEOUT, EscalationOutcome.UNDELIVERED}:
             logger.info("escalation for %s ended as %s; nothing to say", context.meeting_id, result.outcome.value)
             return
         spoken = final_response(result.outcome, proposed)

@@ -14,7 +14,7 @@ export function LegalIndex() {
       <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Legal</p>
       <h1 className="mt-1.5 text-xl font-semibold tracking-tight">Legal documents</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        What DELEG8 does with meetings it joins, and what you take responsibility for by sending it.
+        What Out of Office does with meetings it joins, and what you take responsibility for by sending it.
       </p>
       {loading ? <Spinner className="mt-6" /> : null}
       <div className="mt-6 grid gap-3">

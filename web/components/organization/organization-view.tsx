@@ -60,7 +60,7 @@ function NoOrganization({ onCreated }: { onCreated: () => Promise<unknown> }) {
           <EmptyState
             icon={<Users />}
             title="You're not part of an organization yet"
-            description="Create one to invite teammates. Your own meetings, knowledge and dossier stay exactly as private as they are today - an organization only adds shared billing and an admin view."
+            description="Create one to invite teammates. Your own meetings, documents and profile stay exactly as private as they are today - an organization only adds shared billing and an admin view."
             action={
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <Input
