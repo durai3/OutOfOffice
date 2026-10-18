@@ -874,5 +874,3 @@ See the module docstrings in `src/brain/planner.py`, `src/turn_processor.py` and
   worker thread. Barge-in flushes the playback queue synchronously and the
   playback loop stops at the next 20 ms frame, then the Cartesia context is
   cancelled.
-
-#im going win with this hopefully!!!
