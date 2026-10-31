@@ -1,6 +1,6 @@
-# DELEG8 - an AI delegate for the meetings you can't attend
+# OutOfOffice (OOF) - an AI delegate for the meetings you can't attend
 
-You are double-booked, again. DELEG8 sends a delegate to one of the calls: it
+You are double-booked, again. OOF sends a delegate to one of the calls: it
 **answers from your own documents**, **never improvises on money, contracts, dates
 or anything personal**, asks **your phone** before it commits you to anything, and
 sends you a **briefing with every action item it was handed**.
