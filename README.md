@@ -2,7 +2,7 @@
 
 **An AI delegate for the meetings you can't attend.**
 
-[![Watch the video](https://vumbnail.com)](https://vimeo.com)
+[![Watch the video][(https://vumbnail.com)](https://vimeo.com)](https://vimeo.com/1236966531?share=copy&fl=sv&fe=ci)
 
 Double-booked, again? OutOfOffice sends a delegate to one of your calls. It answers from your own documents, never improvises on money, contracts, dates or anything personal, checks with your phone before committing you to anything, and sends you a briefing with every action item.
 
