@@ -2,6 +2,8 @@
 
 **An AI delegate for the meetings you can't attend.**
 
+[![Watch the video](https://vumbnail.com)](https://vimeo.com)
+
 Double-booked, again? OutOfOffice sends a delegate to one of your calls. It answers from your own documents, never improvises on money, contracts, dates or anything personal, checks with your phone before committing you to anything, and sends you a briefing with every action item.
 
 Built on **Google Gemini**, with a FastAPI backend and a Next.js console, deployed on **Google Cloud Run**.
@@ -61,7 +63,3 @@ cp .env.example .env     # set GEMINI_API_KEY (free: aistudio.google.com/apikey)
 Nothing in the Playground is mocked. Every line runs the same pipeline as a live call.
 
 **Judges:** press **Get straight to the product** on the landing page for a ready-made workspace.
-
-## Demo
-
-Pitch deck and demo video are in [`submissions/`](submissions/).
